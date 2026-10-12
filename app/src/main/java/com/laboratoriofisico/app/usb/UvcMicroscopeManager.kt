@@ -553,7 +553,8 @@ class UvcMicroscopeManager(
 
     private fun String.isFatalPreviewError(): Boolean {
         val normalized = lowercase()
-        return normalized.contains("unsupported preview size") ||
+        return normalized.contains("failed to set preview size") ||
+            normalized.contains("unsupported preview size") ||
             normalized.contains("opendevice failed") ||
             normalized.contains("open camera failed") ||
             normalized.contains("already be removed") ||

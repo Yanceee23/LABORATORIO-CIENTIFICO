@@ -61,12 +61,12 @@ class UvcMicroscopeFragment(
         UsbDebugNdjson.log(
             hypothesisId = "UVC-STABILITY",
             location = "UvcMicroscopeFragment.getCameraRequest",
-            message = "Solicitando preview UVC mínimo y estable",
+            message = "Solicitando preview UVC del microscopio",
             data = mapOf(
                 "requestedWidth" to STABLE_PREVIEW_WIDTH,
                 "requestedHeight" to STABLE_PREVIEW_HEIGHT,
                 "renderMode" to "NORMAL",
-                "previewFormat" to "FORMAT_YUYV"
+                "previewFormat" to "FORMAT_MJPEG"
             )
         )
         return CameraRequest.Builder()
@@ -75,7 +75,7 @@ class UvcMicroscopeFragment(
             .setRenderMode(CameraRequest.RenderMode.NORMAL)
             .setDefaultRotateType(RotateType.ANGLE_0)
             .setAudioSource(CameraRequest.AudioSource.NONE)
-            .setPreviewFormat(CameraRequest.PreviewFormat.FORMAT_YUYV)
+            .setPreviewFormat(CameraRequest.PreviewFormat.FORMAT_MJPEG)
             .setAspectRatioShow(true)
             .setCaptureRawImage(false)
             .setRawPreviewData(false)
@@ -220,7 +220,7 @@ class UvcMicroscopeFragment(
     }
 
     private companion object {
-        const val STABLE_PREVIEW_WIDTH = 160
-        const val STABLE_PREVIEW_HEIGHT = 120
+        const val STABLE_PREVIEW_WIDTH = 640
+        const val STABLE_PREVIEW_HEIGHT = 480
     }
 }
