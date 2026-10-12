@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="petrol_dark">#1B3A4B</color>
+    <color name="petrol_medium">#3D5A6E</color>
+    <color name="smoke_white">#F5F5F0</color>
+    <color name="graphite">#2C2C2C</color>
+    <color name="teal_success">#2A9D8F</color>
+    <color name="amber_warning">#E9A319</color>
+    <color name="dark_red_error">#8B2635</color>
+    <color name="purple_primary">#1B3A4B</color>
+    <color name="purple_secondary">#3D5A6E</color>
+    <color name="teal_accent">#2A9D8F</color>
+</resources>

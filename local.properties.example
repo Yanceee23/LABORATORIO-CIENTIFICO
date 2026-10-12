@@ -1,0 +1,10 @@
+# Copia este archivo a local.properties (en la misma carpeta).
+# local.properties no se sube a Git: cada quien usa el suyo.
+
+# Ruta de tu Android SDK. Android Studio suele llenarla al abrir el proyecto.
+# Windows: C:\\Users\\TU_USUARIO\\AppData\\Local\\Android\\Sdk
+sdk.dir=C\:\\Users\\TU_USUARIO\\AppData\\Local\\Android\\Sdk
+
+# PON TU CLAVE DE GEMINI AQUI
+# Gratis en https://aistudio.google.com/app/apikey
+GEMINI_API_KEY=PON TU CLAVE DE GEMINI AQUI
