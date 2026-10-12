@@ -38,11 +38,26 @@ La clave se crea gratis en [Google AI Studio](https://aistudio.google.com/app/ap
 
 Sin clave la app abre, pero Tutor y Estudio no responden hasta que pegues la tuya y vuelvas a compilar.
 
-## Qué hay en el proyecto
+## Frontend
 
-- **Inicio, Experimentos, Medir y Laboratorio:** sensores del teléfono.
-- **Documentos:** importar y leer PDF.
-- **Estudio y Tutor IA:** usan Gemini.
-- **Resultados:** historial y PDF.
+La interfaz está dentro de la app Android, hecha con Jetpack Compose. No hay otro proyecto web.
 
-El código está en `app/src/main/java/com/laboratoriofisico/app/`.
+Carpeta:
+
+`app/src/main/java/com/laboratoriofisico/app/frontend/`
+
+| Carpeta | Qué es |
+| --- | --- |
+| `ui/screens/inicio` | Pantalla de inicio |
+| `ui/screens/experimentos` | Experimentos, luz, cámara y seguimiento |
+| `ui/screens/tutoria` | Tutor IA y Aprender jugando |
+| `ui/screens/estudio` | Estudio |
+| `ui/screens/documentos` | PDF |
+| `ui/screens/resultados` | Resultados |
+| `ui/screens/ajustes` | Ajustes |
+| `ui/components` | Botones, tarjetas y barra de navegación |
+| `viewmodel` | Lo que cada pantalla muestra y guarda |
+
+Las rutas entre pantallas están en `core/navigation/LaboratorioNavHost.kt`.
+
+Los sensores, la base de datos y Gemini están fuera del frontend: `sensores/`, `backend/` e `ia/`.
