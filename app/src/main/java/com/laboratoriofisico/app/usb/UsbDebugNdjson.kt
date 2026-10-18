@@ -9,15 +9,28 @@ import java.net.URL
 import kotlin.concurrent.thread
 
 object UsbDebugNdjson {
-    private const val TAG = "UvcMicroscope"
-    private const val SESSION_ID = "c0a240"
+    private const val TAG = "CameraDebug"
+    private const val SESSION_ID = "3c0f43"
     private const val ENDPOINT = "http://127.0.0.1:7650/ingest/e867b72b-b027-4ddc-932e-a0e05ec73b1a"
     private var logFile: File? = null
     private var workspaceFile: File? = null
 
     fun init(context: Context) {
-        logFile = File(context.applicationContext.filesDir, "debug-c0a240.log")
-        workspaceFile = File("c:/LABORATORIO FISICO/debug-c0a240.log")
+        val app = context.applicationContext
+        logFile = File(app.filesDir, "debug-3c0f43.log")
+        // Copia también a almacenamiento de la app para poder hacer adb pull.
+        runCatching {
+            val external = app.getExternalFilesDir(null)
+            if (external != null) {
+                workspaceFile = File(external, "debug-3c0f43.log")
+            }
+        }
+        if (workspaceFile == null) {
+            workspaceFile = File("c:/LABORATORIO FISICO/debug-3c0f43.log")
+        }
+        Log.i(TAG, "init logFile=${logFile?.absolutePath} workspaceFile=${workspaceFile?.absolutePath}")
+        runCatching { logFile?.appendText("") }
+        runCatching { workspaceFile?.parentFile?.mkdirs(); workspaceFile?.appendText("") }
     }
 
     // #region agent log
@@ -26,7 +39,7 @@ object UsbDebugNdjson {
         location: String,
         message: String,
         data: Map<String, Any?> = emptyMap(),
-        runId: String = "pre-fix"
+        runId: String = "post-fix"
     ) {
         val payload = JSONObject().apply {
             put("sessionId", SESSION_ID)
@@ -38,9 +51,16 @@ object UsbDebugNdjson {
             put("data", JSONObject(data))
         }
         val line = payload.toString()
-        Log.i(TAG, line)
-        logFile?.appendText("$line\n")
-        runCatching { workspaceFile?.takeIf { it.parentFile?.exists() == true }?.appendText("$line\n") }
+        if (hypothesisId == "H4" || message.contains("error", ignoreCase = true) || message.contains("exception", ignoreCase = true)) {
+            Log.e(TAG, "$location $message $data")
+        } else {
+            Log.i(TAG, "$location $message $data")
+        }
+        runCatching { logFile?.appendText("$line\n") }
+        runCatching {
+            workspaceFile?.parentFile?.mkdirs()
+            workspaceFile?.appendText("$line\n")
+        }
         thread(name = "usb-debug-ndjson") {
             runCatching {
                 val conn = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {

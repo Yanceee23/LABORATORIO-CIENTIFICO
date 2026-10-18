@@ -55,6 +55,7 @@ class UvcMicroscopeManager(
     private var requestGeneration = 0
     private var dialogLikelyShown: Boolean? = null
     private var dialogLikelySuppressed = false
+    private var lastTryOpenAtMs: Long = 0L
     private val eventLog = ArrayDeque<String>()
 
     private val usbReceiver = object : BroadcastReceiver() {
@@ -101,7 +102,7 @@ class UvcMicroscopeManager(
                     dialogLikelyShown = elapsedMs != null && elapsedMs >= DIALOG_SHOWN_THRESHOLD_MS
                     dialogLikelySuppressed = elapsedMs != null && elapsedMs < DIALOG_SUPPRESSED_THRESHOLD_MS && !granted
                     Log.d(
-                        TAG,
+                        "CameraDebug",
                         "USB permission result: granted=$granted hasPermissionNow=$hasPermissionNow " +
                             "deviceId=${device?.deviceId} effectiveGranted=$effectiveGranted elapsedMs=$elapsedMs"
                     )
@@ -122,6 +123,21 @@ class UvcMicroscopeManager(
                             "callbackCount" to permissionCallbackCount
                         )
                     )
+                    // #region agent log
+                    debugLog(
+                        hypothesisId = "H3",
+                        location = "UvcMicroscopeManager.usbReceiver.PERMISSION.result",
+                        message = "Resultado permiso USB",
+                        data = mapOf(
+                            "granted" to granted,
+                            "hasPermissionNow" to hasPermissionNow,
+                            "effectiveGranted" to effectiveGranted,
+                            "vendorId" to device?.vendorId,
+                            "productId" to device?.productId,
+                            "deviceName" to device?.deviceName
+                        )
+                    )
+                    // #endregion
                     explicitPermissionDenied = !effectiveGranted
                     applyPermissionResult(effectiveGranted)
                 }
@@ -152,9 +168,26 @@ class UvcMicroscopeManager(
         refreshUsbDeviceState()
     }
 
+    fun setPreviewPhase(phase: String) {
+        Log.d("CameraDebug", "fase preview=$phase")
+        _state.update { it.copy(previewPhase = phase, statusMessage = phase) }
+    }
+
     fun attachFragment(fragment: UvcMicroscopeFragment) {
         this.fragment = fragment
+        // Al montar el preview, permitir reintentar aunque un deny rápido previo
+        // hubiera marcado explicitPermissionDenied (diálogo USB suprimido).
+        explicitPermissionDenied = false
+        awaitingCallback = false
         refreshUsbDeviceState()
+        if (_state.value.deviceConnected && !_state.value.permissionGranted) {
+            setPreviewPhase("Pidiendo permiso…")
+        } else if (_state.value.deviceConnected) {
+            setPreviewPhase("Abriendo cámara…")
+        }
+        if (_state.value.deviceConnected) {
+            fragment.tryOpenCamera()
+        }
     }
 
     fun detachFragment(fragment: UvcMicroscopeFragment) {
@@ -167,6 +200,14 @@ class UvcMicroscopeManager(
     fun requestUsbPermission() {
         val device = findUvcDevice()
         if (device == null) {
+            // #region agent log
+            debugLog(
+                hypothesisId = "H2",
+                location = "UvcMicroscopeManager.requestUsbPermission",
+                message = "Permiso USB: no hay dispositivo UVC",
+                data = mapOf("usbCount" to usbManager.deviceList.size)
+            )
+            // #endregion
             appendEvent("Permiso solicitado: sin dispositivo")
             _state.update {
                 it.copy(
@@ -309,7 +350,8 @@ class UvcMicroscopeManager(
                 deviceConnected = true,
                 permissionGranted = true,
                 permissionDenied = false,
-                statusMessage = "Microscopio conectado",
+                statusMessage = "En vivo",
+                previewPhase = "En vivo",
                 errorMessage = null,
                 fallbackGalleryAvailable = false,
                 debug = currentDebug(liveHasPermission = true)
@@ -321,6 +363,7 @@ class UvcMicroscopeManager(
         _state.update {
             it.copy(
                 previewActive = false,
+                previewPhase = "",
                 statusMessage = if (it.deviceConnected) "Microscopio conectado" else "Microscopio desconectado",
                 debug = currentDebug(liveHasPermission = it.permissionGranted)
             )
@@ -353,6 +396,7 @@ class UvcMicroscopeManager(
                 } else {
                     it.statusMessage
                 },
+                previewPhase = "Error: $previewError",
                 errorMessage = if (fatalPreviewError) {
                     "No se pudo abrir el stream UVC estable. Verifica el cable OTG/USB-C, la alimentación del microscopio y vuelve a conectarlo."
                 } else {
@@ -380,11 +424,25 @@ class UvcMicroscopeManager(
             return
         }
 
-        val device = findUvcDevice()
+        val allDevices = usbManager.deviceList.values.toList()
+        val device = allDevices.firstOrNull { it.isLikelyUvcCamera() }
         val connected = device != null
         val hasPermission = device?.let { usbManager.hasPermission(it) } == true
         val deviceId = device?.deviceId
+        // #region agent log
+        debugLog(
+            hypothesisId = "H2",
+            location = "UvcMicroscopeManager.refreshUsbDeviceState.devices",
+            message = "Listado USB al refrescar",
+            data = mapOf(
+                "count" to allDevices.size,
+                "uvcFound" to connected,
+                "devices" to allDevices.joinToString(" | ") { it.usbDebugLabel() }
+            )
+        )
+        // #endregion
         if (device != null) {
+            Log.d("CameraDebug", "USB device detected: ${device.usbDebugLabel()} hasPermission=$hasPermission")
             Log.i(TAG, "USB device detected: ${device.usbDebugLabel()} hasPermission=$hasPermission")
             appendEvent("Dispositivo detectado: ${device.usbDebugLabel()} hasPermission=$hasPermission")
         }
@@ -415,6 +473,7 @@ class UvcMicroscopeManager(
                 permissionDenied = connected && !hasPermission && explicitPermissionDenied,
                 previewBlocked = if (connected) it.previewBlocked else false,
                 previewActive = if (connected && hasPermission) it.previewActive else false,
+                previewPhase = if (connected) it.previewPhase else "",
                 statusMessage = when {
                     !connected -> "Microscopio desconectado"
                     it.previewBlocked -> "Preview UVC detenido para evitar reconexiones en bucle."
@@ -452,10 +511,21 @@ class UvcMicroscopeManager(
             "refreshUsbDeviceState: connected=$connected hasPermission=$hasPermission " +
                 "explicitDenied=$explicitPermissionDenied previewActive=${_state.value.previewActive}"
         )
+        // Solo el CameraFragment debe pedir permiso USB: un UsbManager.requestPermission
+        // temprano en Samsung suele auto-denegar (dialogLikelySuppressed) y deja preview blanco.
         if (connected && !hasPermission && !awaitingCallback && !explicitPermissionDenied) {
-            appendEvent("hasPermission=false → solicitando permiso USB automáticamente")
-            Log.i(TAG, "hasPermission=false; calling UsbManager.requestPermission()")
-            requestUsbPermission()
+            val active = fragment
+            if (active != null) {
+                appendEvent("hasPermission=false → abriendo vía CameraFragment")
+                Log.i(TAG, "hasPermission=false; tryOpenCamera via fragment")
+                active.tryOpenCamera()
+            }
+        } else if (connected && hasPermission && !_state.value.previewActive) {
+            val now = System.currentTimeMillis()
+            if (now - lastTryOpenAtMs >= 1_500L) {
+                lastTryOpenAtMs = now
+                fragment?.tryOpenCamera()
+            }
         }
     }
 
@@ -589,7 +659,7 @@ class UvcMicroscopeManager(
         usbManager.deviceList.values.firstOrNull { it.isLikelyUvcCamera() }
 
     private fun UsbDevice.isLikelyUvcCamera(): Boolean {
-        if (deviceClass == UsbConstants.USB_CLASS_VIDEO) return true
+        if (deviceClass == UsbConstants.USB_CLASS_VIDEO || deviceClass == USB_CLASS_MISC) return true
         for (index in 0 until interfaceCount) {
             val usbInterface = getInterface(index)
             if (usbInterface.interfaceClass == UsbConstants.USB_CLASS_VIDEO) return true

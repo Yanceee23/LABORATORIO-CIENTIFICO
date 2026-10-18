@@ -56,6 +56,7 @@ pdfbox-android = { group = "com.tom-roush", name = "pdfbox-android", version.ref
 google-generativeai = { group = "com.google.ai.client.generativeai", name = "generativeai", version.ref = "generativeAi" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 ausbc = { group = "com.github.ernestp.AndroidUSBCamera", name = "libausbc", version.ref = "ausbc" }
+uvc = { group = "com.github.ernestp.AndroidUSBCamera", name = "libuvc", version.ref = "ausbc" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

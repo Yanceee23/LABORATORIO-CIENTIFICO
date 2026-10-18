@@ -9,6 +9,7 @@ data class UvcMicroscopeState(
     val previewActive: Boolean = false,
     val capturing: Boolean = false,
     val statusMessage: String = "Microscopio desconectado",
+    val previewPhase: String = "",
     val errorMessage: String? = null,
     val fallbackGalleryAvailable: Boolean = false,
     val debug: UvcUsbDebugInfo = UvcUsbDebugInfo()

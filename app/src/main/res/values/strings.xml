@@ -774,7 +774,7 @@
     <string name="micro_hint_bloqueado">No se pudo mantener la imagen. Revisa el cable y vuelve a conectar el microscopio.</string>
     <string name="micro_hint_desconectado">Conecta el microscopio para ver la imagen.</string>
     <string name="micro_hint_permiso">Acepta el acceso USB para ver la imagen del microscopio.</string>
-    <string name="micro_hint_preparando">Preparando la imagen del microscopio…</string>
+    <string name="micro_hint_preparando">Esperando imagen…</string>
     <string name="micro_permiso_camara">Permitir la cámara</string>
     <string name="micro_permiso_usb">Permitir el microscopio USB</string>
     <string name="micro_ultima_captura">Última foto</string>

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- USB Video Class: class 239, subclass 2, protocol 1. -->
+    <!-- Compuesto / IAD. No se filtra por vendorId. -->
     <usb-device class="239" subclass="2" protocol="1" />
-    <!-- Algunos microscopios UVC anuncian interfaces de video con clase 14. -->
+    <usb-device class="239" />
+    <!-- USB Video Class. -->
     <usb-device class="14" />
 </resources>

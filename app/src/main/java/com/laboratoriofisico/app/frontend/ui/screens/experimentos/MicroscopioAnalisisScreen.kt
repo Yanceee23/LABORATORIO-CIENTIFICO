@@ -24,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -83,121 +84,168 @@ fun MicroscopioAnalisisScreen(
         if (uri != null) viewModel.seleccionarImagenFallback(uri)
     }
     val uvcState = uiState.uvcState
+    val mostrarPreview =
+        uvcState.usbHostSupported && !uvcState.previewBlocked && cameraPermissionGranted
+    // #region agent log
+    LaunchedEffect(
+        mostrarPreview,
+        cameraPermissionGranted,
+        uvcState.deviceConnected,
+        uvcState.permissionGranted,
+        uvcState.previewActive,
+        uvcState.previewBlocked,
+        uvcState.errorMessage
+    ) {
+        com.laboratoriofisico.app.usb.UsbDebugNdjson.log(
+            hypothesisId = "H1",
+            location = "MicroscopioAnalisisScreen.previewGate",
+            message = "Decisión de montar el preview UVC",
+            data = mapOf(
+                "mostrarPreview" to mostrarPreview,
+                "cameraGranted" to cameraPermissionGranted,
+                "usbHost" to uvcState.usbHostSupported,
+                "deviceConnected" to uvcState.deviceConnected,
+                "usbPermission" to uvcState.permissionGranted,
+                "previewActive" to uvcState.previewActive,
+                "previewBlocked" to uvcState.previewBlocked,
+                "error" to uvcState.errorMessage
+            )
+        )
+    }
+    // #endregion
+    // Sin permiso CAMERA el fragmento UVC no se monta (preview blanco). Pedirlo al entrar.
+    LaunchedEffect(Unit) {
+        if (!cameraPermissionGranted) {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
 
+    val tituloClaro = uiState.tipo.tituloClaro()
+    // El preview UVC va fuera del scroll. TextureView queda blanco en Compose;
+    // el fragmento usa SurfaceView para pintar el video en su propia superficie.
     Column(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        val tituloClaro = uiState.tipo.tituloClaro()
-        LabBackLink(onClick = onNavigateBack)
-        LabScreenTitle(title = tituloClaro)
-        ExperimentoGuiaCard(guia = guiaMicroscopio(tituloClaro))
-
-        if (uiState.tipo == TipoAnalisisMicroscopio.SANGRE) {
-            DisclaimerSangre()
-        }
-
-        LabSurfaceCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                LabSectionLabel(text = stringResource(R.string.seccion_preview_camara))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(300.dp)
-                ) {
-                    if (uvcState.usbHostSupported && !uvcState.previewBlocked && cameraPermissionGranted) {
-                        UvcMicroscopePreview(
-                            manager = viewModel.uvcMicroscopeManager,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                    if (!uvcState.previewActive) {
-                        Text(
-                            text = uvcState.previewHint(),
-                            modifier = Modifier.padding(16.dp)
-                        )
-                    }
-                }
-                uvcState.errorMessage?.let { error ->
-                    val (tipo, texto) = clasificarMensaje(error)
-                    EstadoAmigable(tipo = tipo, texto = texto)
-                }
+        Column(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            LabBackLink(onClick = onNavigateBack)
+            LabScreenTitle(title = tituloClaro)
+            ExperimentoGuiaCard(guia = guiaMicroscopio(tituloClaro))
+            if (uiState.tipo == TipoAnalisisMicroscopio.SANGRE) {
+                DisclaimerSangre()
             }
         }
 
-        CameraActions(
-            canRequestPermission = uvcState.deviceConnected && !uvcState.permissionGranted,
-            canRequestCameraPermission = uvcState.deviceConnected && !cameraPermissionGranted,
-            canCapture = uvcState.previewActive && !uvcState.previewBlocked && !uiState.capturando && !uiState.analizando,
-            canAnalyze = uiState.ultimaCapturaPath != null && !uiState.capturando && !uiState.analizando,
-            fallbackGalleryAvailable = uvcState.fallbackGalleryAvailable,
-            onRequestPermission = viewModel::solicitarPermisoUsb,
-            onRequestCameraPermission = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
-            onCapture = viewModel::capturar,
-            onAnalyze = viewModel::analizarCaptura,
-            onPickFallback = { galleryLauncher.launch("image/*") }
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LabSectionLabel(text = stringResource(R.string.seccion_preview_camara))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(300.dp)
+            ) {
+                if (mostrarPreview) {
+                    UvcMicroscopePreview(
+                        manager = viewModel.uvcMicroscopeManager,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                if (!uvcState.previewActive) {
+                    Text(
+                        text = uvcState.previewHint(),
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            }
+            uvcState.errorMessage?.let { error ->
+                val (tipo, texto) = clasificarMensaje(error)
+                EstadoAmigable(tipo = tipo, texto = texto)
+            }
+        }
 
-        if (uiState.tipo == TipoAnalisisMicroscopio.SANGRE) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Checkbox(
-                    checked = uiState.incluirHipotesisEducativaSangre,
-                    onCheckedChange = viewModel::setIncluirHipotesisEducativaSangre
-                )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            CameraActions(
+                canRequestPermission = uvcState.deviceConnected && !uvcState.permissionGranted,
+                canRequestCameraPermission = uvcState.deviceConnected && !cameraPermissionGranted,
+                canCapture = uvcState.previewActive && !uvcState.previewBlocked && !uiState.capturando && !uiState.analizando,
+                canAnalyze = uiState.ultimaCapturaPath != null && !uiState.capturando && !uiState.analizando,
+                fallbackGalleryAvailable = uvcState.fallbackGalleryAvailable,
+                onRequestPermission = viewModel::solicitarPermisoUsb,
+                onRequestCameraPermission = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
+                onCapture = viewModel::capturar,
+                onAnalyze = viewModel::analizarCaptura,
+                onPickFallback = { galleryLauncher.launch("image/*") }
+            )
+
+            if (uiState.tipo == TipoAnalisisMicroscopio.SANGRE) {
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Checkbox(
+                        checked = uiState.incluirHipotesisEducativaSangre,
+                        onCheckedChange = viewModel::setIncluirHipotesisEducativaSangre
+                    )
+                    Text(
+                        text = "Pedir una hipótesis educativa especulativa. No es diagnóstico y no determina ABO/Rh.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                }
+            }
+
+            uiState.ultimaCapturaPath?.let { path ->
+                LabSectionLabel(text = stringResource(R.string.micro_ultima_captura))
+                CapturedImage(path = path)
                 Text(
-                    text = "Pedir una hipótesis educativa especulativa. No es diagnóstico y no determina ABO/Rh.",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 12.dp)
+                    text = stringResource(R.string.micro_nota_analizar),
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
-        }
 
-        uiState.ultimaCapturaPath?.let { path ->
-            LabSectionLabel(text = stringResource(R.string.micro_ultima_captura))
-            CapturedImage(path = path)
-            Text(
-                text = stringResource(R.string.micro_nota_analizar),
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-
-        if (uiState.analizando) {
-            EstadoAmigable(
-                tipo = EstadoAmigableTipo.Cargando,
-                texto = stringResource(R.string.guia_micro_analizando)
-            )
-        }
-        if (uiState.ultimoAnalisisId != null) {
-            ResultadoExplicadoCard(texto = stringResource(R.string.guia_micro_significado))
-            Text(
-                text = stringResource(R.string.micro_consultas_ia, uiState.geminiCallsEnAnalisisActual),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-        uiState.mensaje?.let { raw ->
-            val (tipo, texto) = clasificarMensaje(raw)
-            EstadoAmigable(tipo = tipo, texto = texto)
-        }
-        uiState.error?.let { raw ->
-            val (tipo, texto) = clasificarMensaje(raw)
-            EstadoAmigable(
-                tipo = if (tipo == EstadoAmigableTipo.Info) EstadoAmigableTipo.Error else tipo,
-                texto = texto
-            )
-        }
-
-        LabSectionLabel(text = stringResource(R.string.micro_historial))
-        if (uiState.historial.isEmpty()) {
-            LabSurfaceCard {
-                Text(stringResource(R.string.micro_vacio))
+            if (uiState.analizando) {
+                EstadoAmigable(
+                    tipo = EstadoAmigableTipo.Cargando,
+                    texto = stringResource(R.string.guia_micro_analizando)
+                )
             }
-        } else {
-            uiState.historial.forEach { item ->
-                AnalisisTimelineItem(item = item)
+            if (uiState.ultimoAnalisisId != null) {
+                ResultadoExplicadoCard(texto = stringResource(R.string.guia_micro_significado))
+                Text(
+                    text = stringResource(R.string.micro_consultas_ia, uiState.geminiCallsEnAnalisisActual),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            uiState.mensaje?.let { raw ->
+                val (tipo, texto) = clasificarMensaje(raw)
+                EstadoAmigable(tipo = tipo, texto = texto)
+            }
+            uiState.error?.let { raw ->
+                val (tipo, texto) = clasificarMensaje(raw)
+                EstadoAmigable(
+                    tipo = if (tipo == EstadoAmigableTipo.Info) EstadoAmigableTipo.Error else tipo,
+                    texto = texto
+                )
+            }
+
+            LabSectionLabel(text = stringResource(R.string.micro_historial))
+            if (uiState.historial.isEmpty()) {
+                LabSurfaceCard {
+                    Text(stringResource(R.string.micro_vacio))
+                }
+            } else {
+                uiState.historial.forEach { item ->
+                    AnalisisTimelineItem(item = item)
+                }
             }
         }
     }
@@ -299,11 +347,12 @@ private fun TipoAnalisisMicroscopio.tituloClaro(): String = when (this) {
 
 @Composable
 private fun com.laboratoriofisico.app.usb.UvcMicroscopeState.previewHint(): String = when {
+    previewPhase.isNotBlank() -> previewPhase
     !usbHostSupported -> stringResource(R.string.micro_hint_sin_usb)
     previewBlocked -> stringResource(R.string.micro_hint_bloqueado)
     !deviceConnected -> stringResource(R.string.micro_hint_desconectado)
-    !permissionGranted -> stringResource(R.string.micro_hint_permiso)
-    else -> stringResource(R.string.micro_hint_preparando)
+    !permissionGranted -> "Pidiendo permiso…"
+    else -> "Abriendo cámara…"
 }
 
 @Composable

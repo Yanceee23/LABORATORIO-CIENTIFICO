@@ -9,7 +9,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
-import androidx.fragment.app.commit
 import com.laboratoriofisico.app.usb.UvcMicroscopeFragment
 import com.laboratoriofisico.app.usb.UvcMicroscopeManager
 
@@ -27,23 +26,30 @@ fun UvcMicroscopePreview(
         factory = { ctx ->
             FragmentContainerView(ctx).apply {
                 id = containerId
-                if (activity != null && activity.supportFragmentManager.findFragmentByTag(tag) == null) {
-                    activity.supportFragmentManager.commit {
-                        replace(containerId, UvcMicroscopeFragment(manager), tag)
-                    }
-                }
+                setBackgroundColor(android.graphics.Color.BLACK)
             }
         },
-        modifier = modifier
+        modifier = modifier,
+        update = { view ->
+            val fragmentManager = activity?.supportFragmentManager ?: return@AndroidView
+            if (fragmentManager.findFragmentByTag(tag) != null) return@AndroidView
+            view.post {
+                if (!view.isAttachedToWindow) return@post
+                if (fragmentManager.findFragmentByTag(tag) != null) return@post
+                fragmentManager.beginTransaction()
+                    .replace(view.id, UvcMicroscopeFragment(manager), tag)
+                    .commitAllowingStateLoss()
+            }
+        }
     )
 
     DisposableEffect(activity, tag) {
         onDispose {
             val fragmentManager = activity?.supportFragmentManager ?: return@onDispose
             val fragment = fragmentManager.findFragmentByTag(tag) ?: return@onDispose
-            fragmentManager.commit(allowStateLoss = true) {
-                remove(fragment)
-            }
+            fragmentManager.beginTransaction()
+                .remove(fragment)
+                .commitAllowingStateLoss()
         }
     }
 }

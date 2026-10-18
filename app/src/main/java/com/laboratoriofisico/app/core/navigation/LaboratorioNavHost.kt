@@ -15,8 +15,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import android.app.Activity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -227,6 +229,14 @@ private fun MainNavHost(
 ) {
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
+    val activity = LocalContext.current as? Activity
+    LaunchedEffect(Unit) {
+        val route = activity?.intent?.getStringExtra("open_route")
+        if (!route.isNullOrBlank()) {
+            activity.intent.removeExtra("open_route")
+            navController.navigate(route)
+        }
+    }
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route?.substringBefore("?")
     val showBottomBar = currentRoute in bottomRoutes

@@ -92,6 +92,7 @@ dependencies {
     implementation(libs.google.generativeai)
     implementation(libs.okhttp)
     implementation(libs.ausbc)
+    implementation(libs.uvc)
 
     implementation(libs.play.services.location)
     implementation(libs.androidx.camera.core)
