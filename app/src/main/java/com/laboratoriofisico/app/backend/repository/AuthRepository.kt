@@ -4,7 +4,10 @@ import android.database.sqlite.SQLiteConstraintException
 import com.laboratoriofisico.app.backend.auth.AppRole
 import com.laboratoriofisico.app.backend.auth.AuthMessages
 import com.laboratoriofisico.app.backend.auth.AuthValidation
-import com.laboratoriofisico.app.backend.auth.PasswordHasher
+import com.laboratoriofisico.app.backend.auth.CuentaFirebase
+import com.laboratoriofisico.app.backend.auth.CuentasFirebase
+import com.laboratoriofisico.app.backend.auth.ResultadoCuentaFirebase
+import com.laboratoriofisico.app.backend.auth.RolFirebase
 import com.laboratoriofisico.app.backend.local.dao.UsuarioDao
 import com.laboratoriofisico.app.backend.local.entity.UsuarioEntity
 import com.laboratoriofisico.app.backend.session.AuthSessionManager
@@ -17,12 +20,14 @@ sealed class AuthResult {
 }
 
 /**
- * Autenticación contra la tabla Room `usuarios` (SQLite real).
- * Invitado: solo sesión, sin fila en la base.
+ * El login vive en Firebase: Authentication valida el correo y la contraseña,
+ * Firestore guarda nombre, correo, rol (usuario o invitado) y fecha.
+ * Room solo conserva el id local que el resto de la app ya usa.
  */
 class AuthRepository(
     private val usuarioDao: UsuarioDao,
-    private val sessionManager: AuthSessionManager
+    private val sessionManager: AuthSessionManager,
+    private val cuentas: CuentasFirebase
 ) {
     suspend fun login(email: String, password: String): AuthResult {
         val emailNormalizado = AuthValidation.normalizeEmail(email)
@@ -34,63 +39,38 @@ class AuthRepository(
             return AuthResult.Error("La contraseña es obligatoria")
         }
 
-        val usuario = usuarioDao.findByEmail(emailNormalizado)
-        // #region agent log
-        DebugSessionLog.log(
-            hypothesisId = "H-LOGIN-A",
-            location = "AuthRepository.login",
-            message = "resultado búsqueda usuario",
-            data = mapOf(
-                "emailNorm" to emailNormalizado,
-                "found" to (usuario != null),
-                "hashBlank" to (usuario?.passwordHash?.isBlank() == true),
-                "userId" to (usuario?.id ?: -1L)
-            ),
-            runId = "roles-pre"
-        )
-        // #endregion
-        if (usuario == null) {
-            return AuthResult.Error(AuthMessages.CREDENCIALES_INVALIDAS)
+        return when (val remoto = cuentas.iniciarSesion(emailNormalizado, password)) {
+            is ResultadoCuentaFirebase.Ok -> {
+                if (remoto.cuenta.rol == RolFirebase.INVITADO) {
+                    sessionManager.enterAsGuest()
+                    return AuthResult.Success(0L)
+                }
+                val userId = guardarUsuarioLocal(remoto.cuenta)
+                sessionManager.setLoggedInUser(userId)
+                DebugSessionLog.log(
+                    hypothesisId = "H-LOGIN-D",
+                    location = "AuthRepository.login",
+                    message = "login Firebase correcto",
+                    data = mapOf("userId" to userId, "rol" to remoto.cuenta.rol),
+                    runId = "firebase-login"
+                )
+                AuthResult.Success(userId)
+            }
+            is ResultadoCuentaFirebase.NecesitaContrasena -> {
+                val userId = usuarioDao.findByEmail(emailNormalizado)?.id
+                    ?: usuarioDao.insert(
+                        UsuarioEntity(
+                            nombre = nombreDesdeCorreo(emailNormalizado),
+                            email = emailNormalizado,
+                            rol = AppRole.REGISTRADO.storageValue,
+                            fechaCreacion = System.currentTimeMillis(),
+                            passwordHash = ""
+                        )
+                    )
+                AuthResult.NeedsPasswordReset(userId, emailNormalizado)
+            }
+            is ResultadoCuentaFirebase.Error -> AuthResult.Error(remoto.message)
         }
-
-        if (usuario.passwordHash.isBlank()) {
-            // #region agent log
-            DebugSessionLog.log(
-                hypothesisId = "H-LOGIN-B",
-                location = "AuthRepository.login",
-                message = "cuenta sin hash de contraseña",
-                data = mapOf("userId" to usuario.id),
-                runId = "roles-pre"
-            )
-            // #endregion
-            return AuthResult.NeedsPasswordReset(usuario.id, usuario.email)
-        }
-
-        if (!PasswordHasher.verify(password, usuario.passwordHash)) {
-            // #region agent log
-            DebugSessionLog.log(
-                hypothesisId = "H-LOGIN-C",
-                location = "AuthRepository.login",
-                message = "hash no coincide",
-                data = mapOf("userId" to usuario.id),
-                runId = "roles-pre"
-            )
-            // #endregion
-            return AuthResult.Error(AuthMessages.CREDENCIALES_INVALIDAS)
-        }
-
-        // Si ya hay sesión del mismo usuario, se reutiliza (sin bloquear).
-        sessionManager.setLoggedInUser(usuario.id)
-        // #region agent log
-        DebugSessionLog.log(
-            hypothesisId = "H-LOGIN-D",
-            location = "AuthRepository.login",
-            message = "login correcto; sesión establecida",
-            data = mapOf("userId" to usuario.id),
-            runId = "roles-pre"
-        )
-        // #endregion
-        return AuthResult.Success(usuario.id)
     }
 
     suspend fun register(nombre: String, email: String, password: String): AuthResult {
@@ -107,28 +87,24 @@ class AuthRepository(
             return AuthResult.Error(it)
         }
 
-        if (usuarioDao.findByEmail(emailNormalizado) != null) {
-            return AuthResult.Error(AuthMessages.CORREO_YA_REGISTRADO)
+        return when (
+            val remoto = cuentas.registrar(nombreNormalizado, emailNormalizado, password)
+        ) {
+            is ResultadoCuentaFirebase.Ok -> {
+                val userId = try {
+                    guardarUsuarioLocal(remoto.cuenta.copy(nombre = nombreNormalizado))
+                } catch (_: SQLiteConstraintException) {
+                    return AuthResult.Error(AuthMessages.CORREO_YA_REGISTRADO)
+                } catch (_: Exception) {
+                    return AuthResult.Error(AuthMessages.ERROR_REGISTRO)
+                }
+                sessionManager.setLoggedInUser(userId)
+                AuthResult.Success(userId)
+            }
+            is ResultadoCuentaFirebase.NecesitaContrasena ->
+                AuthResult.Error(AuthMessages.CUENTA_SIN_CONTRASENA)
+            is ResultadoCuentaFirebase.Error -> AuthResult.Error(remoto.message)
         }
-
-        val userId = try {
-            usuarioDao.insert(
-                UsuarioEntity(
-                    nombre = nombreNormalizado,
-                    email = emailNormalizado,
-                    rol = AppRole.REGISTRADO.storageValue,
-                    fechaCreacion = System.currentTimeMillis(),
-                    passwordHash = PasswordHasher.hash(password)
-                )
-            )
-        } catch (_: SQLiteConstraintException) {
-            return AuthResult.Error(AuthMessages.CORREO_YA_REGISTRADO)
-        } catch (_: Exception) {
-            return AuthResult.Error(AuthMessages.ERROR_REGISTRO)
-        }
-
-        sessionManager.setLoggedInUser(userId)
-        return AuthResult.Success(userId)
     }
 
     suspend fun setNewPassword(userId: Long, password: String): AuthResult {
@@ -137,25 +113,68 @@ class AuthRepository(
         }
         val usuario = usuarioDao.getById(userId)
             ?: return AuthResult.Error(AuthMessages.CREDENCIALES_INVALIDAS)
-        usuarioDao.updatePasswordHash(userId, PasswordHasher.hash(password))
-        sessionManager.setLoggedInUser(usuario.id)
-        return AuthResult.Success(usuario.id)
+        return when (val remoto = cuentas.establecerContrasena(usuario.email, password)) {
+            is ResultadoCuentaFirebase.Ok -> {
+                usuarioDao.updatePasswordHash(userId, MARCADOR_FIREBASE)
+                sessionManager.setLoggedInUser(usuario.id)
+                AuthResult.Success(usuario.id)
+            }
+            is ResultadoCuentaFirebase.NecesitaContrasena ->
+                AuthResult.NeedsPasswordReset(userId, usuario.email)
+            is ResultadoCuentaFirebase.Error -> AuthResult.Error(remoto.message)
+        }
     }
 
     suspend fun enterAsGuest() {
-        sessionManager.enterAsGuest()
-        // #region agent log
+        when (val remoto = cuentas.entrarComoInvitado()) {
+            is ResultadoCuentaFirebase.Ok -> sessionManager.enterAsGuest()
+            is ResultadoCuentaFirebase.NecesitaContrasena ->
+                error(AuthMessages.ERROR_REGISTRO)
+            is ResultadoCuentaFirebase.Error -> error(remoto.message)
+        }
         DebugSessionLog.log(
             hypothesisId = "H-LOGIN-E",
             location = "AuthRepository.enterAsGuest",
-            message = "sesión invitado activa",
-            data = mapOf("role" to AppRole.INVITADO.storageValue),
-            runId = "roles-pre"
+            message = "sesión invitado en Firebase",
+            data = mapOf("role" to RolFirebase.INVITADO),
+            runId = "firebase-login"
         )
-        // #endregion
     }
 
     suspend fun logout() {
+        cuentas.cerrarSesion()
         sessionManager.logout()
+    }
+
+    private suspend fun guardarUsuarioLocal(cuenta: CuentaFirebase): Long {
+        val existente = usuarioDao.findByEmail(cuenta.email)
+        if (existente != null) {
+            usuarioDao.updateProfile(
+                existente.id,
+                cuenta.nombre,
+                cuenta.email,
+                AppRole.REGISTRADO.storageValue
+            )
+            if (existente.passwordHash.isBlank()) {
+                usuarioDao.updatePasswordHash(existente.id, MARCADOR_FIREBASE)
+            }
+            return existente.id
+        }
+        return usuarioDao.insert(
+            UsuarioEntity(
+                nombre = cuenta.nombre,
+                email = cuenta.email,
+                rol = AppRole.REGISTRADO.storageValue,
+                fechaCreacion = cuenta.fechaCreacion,
+                passwordHash = MARCADOR_FIREBASE
+            )
+        )
+    }
+
+    private fun nombreDesdeCorreo(email: String): String =
+        email.substringBefore("@").ifBlank { "Usuario" }
+
+    private companion object {
+        const val MARCADOR_FIREBASE = "firebase-auth"
     }
 }

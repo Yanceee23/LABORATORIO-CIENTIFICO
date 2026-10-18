@@ -185,7 +185,7 @@ class MicroscopioAnalisisViewModel(
         val imageKey = analysisCacheKey(imagenPath)
         if (
             imageKey in analyzedImageKeys ||
-            state.historial.any { it.imagenPath == imagenPath && it.promptVersion == GeminiPrompts.MICROSCOPIO_PROMPT_VERSION }
+            state.historial.any { it.imagenPath == imagenPath && it.promptVersion == promptVersionActual() }
         ) {
             com.laboratoriofisico.app.usb.UsbDebugNdjson.log(
                 hypothesisId = "GEMINI-ONE-CALL",
@@ -234,7 +234,7 @@ class MicroscopioAnalisisViewModel(
                         imagenPath = imagenPath,
                         analisis = respuesta,
                         resumenParaComparacion = resumenDesdeAnalisis(respuesta),
-                        promptVersion = GeminiPrompts.MICROSCOPIO_PROMPT_VERSION,
+                        promptVersion = promptVersionActual(),
                         timestamp = System.currentTimeMillis()
                     )
                 )
@@ -261,6 +261,11 @@ class MicroscopioAnalisisViewModel(
 
     fun setIncluirHipotesisEducativaSangre(value: Boolean) {
         _uiState.update { it.copy(incluirHipotesisEducativaSangre = value) }
+    }
+
+    private fun promptVersionActual(): Int = when (tipo) {
+        TipoAnalisisMicroscopio.SANGRE -> GeminiPrompts.SANGRE_PROMPT_VERSION
+        else -> GeminiPrompts.MICROSCOPIO_PROMPT_VERSION
     }
 
     private fun promptForTipo(resumenAnterior: String?): String = when (tipo) {
@@ -339,6 +344,6 @@ class MicroscopioAnalisisViewModel(
 
     private fun analysisCacheKey(imagenPath: String): String {
         val file = File(imagenPath)
-        return "${file.absolutePath}|${file.lastModified()}|${file.length()}|${GeminiPrompts.MICROSCOPIO_PROMPT_VERSION}"
+        return "${file.absolutePath}|${file.lastModified()}|${file.length()}|${promptVersionActual()}"
     }
 }

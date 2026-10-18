@@ -1,10 +1,12 @@
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    id("com.google.gms.google-services")
 }
 
 val localProperties = Properties().apply {
@@ -22,7 +24,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.laboratoriofisico.app"
+        applicationId = "laboratoriofisico.app"
         minSdk = 26
         targetSdk = 35
         versionCode = 4
@@ -49,10 +51,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -62,6 +60,12 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
@@ -93,6 +97,12 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.ausbc)
     implementation(libs.uvc)
+
+    implementation(platform("com.google.firebase:firebase-bom:35.0.2"))
+    implementation("com.google.firebase:firebase-analytics")
+    implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.firebase:firebase-firestore")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 
     implementation(libs.play.services.location)
     implementation(libs.androidx.camera.core)

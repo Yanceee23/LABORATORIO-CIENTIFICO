@@ -3,6 +3,7 @@ package com.laboratoriofisico.app.core.di
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.laboratoriofisico.app.backend.auth.FirebaseCuentas
 import com.laboratoriofisico.app.backend.auth.RegisteredUserGuard
 import com.laboratoriofisico.app.backend.local.database.LaboratorioDatabase
 import com.laboratoriofisico.app.backend.model.TipoAnalisisMicroscopio
@@ -93,7 +94,11 @@ class AppContainer(context: Context) {
     private val database: LaboratorioDatabase = LaboratorioDatabase.create(appContext)
 
     val sessionRepository = SessionRepository(appContext)
-    val authRepository = AuthRepository(database.usuarioDao(), sessionRepository)
+    val authRepository = AuthRepository(
+        database.usuarioDao(),
+        sessionRepository,
+        FirebaseCuentas()
+    )
     val registeredUserGuard = RegisteredUserGuard(sessionRepository)
 
     val usuarioRepository = UsuarioRepository(database.usuarioDao(), sessionRepository)

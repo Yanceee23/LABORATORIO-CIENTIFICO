@@ -2,6 +2,10 @@ package com.laboratoriofisico.app.backend.repository
 
 import com.laboratoriofisico.app.backend.auth.AppRole
 import com.laboratoriofisico.app.backend.auth.AuthMessages
+import com.laboratoriofisico.app.backend.auth.CuentaFirebase
+import com.laboratoriofisico.app.backend.auth.CuentasFirebase
+import com.laboratoriofisico.app.backend.auth.ResultadoCuentaFirebase
+import com.laboratoriofisico.app.backend.auth.RolFirebase
 import com.laboratoriofisico.app.backend.local.dao.UsuarioDao
 import com.laboratoriofisico.app.backend.local.entity.UsuarioEntity
 import com.laboratoriofisico.app.backend.session.AuthSessionManager
@@ -16,7 +20,8 @@ class AuthRepositoryTest {
 
     private val fakeDao = FakeUsuarioDao()
     private val sessionManager = FakeSessionManager()
-    private val repository = AuthRepository(fakeDao, sessionManager)
+    private val cuentas = FakeCuentasFirebase()
+    private val repository = AuthRepository(fakeDao, sessionManager, cuentas)
 
     @Test
     fun register_newEmail_succeeds() = runBlocking {
@@ -77,15 +82,7 @@ class AuthRepositoryTest {
 
     @Test
     fun login_emptyPasswordHash_returnsNeedsPasswordReset() = runBlocking {
-        fakeDao.insert(
-            UsuarioEntity(
-                nombre = "Demo",
-                email = "demo@laboratoriofisico.app",
-                rol = AppRole.REGISTRADO.storageValue,
-                fechaCreacion = System.currentTimeMillis(),
-                passwordHash = ""
-            )
-        )
+        cuentas.agregarSinContrasena("demo@laboratoriofisico.app")
         val result = repository.login("demo@laboratoriofisico.app", "cualquier")
         assertTrue(result is AuthResult.NeedsPasswordReset)
         assertEquals("demo@laboratoriofisico.app", (result as AuthResult.NeedsPasswordReset).email)
@@ -100,21 +97,102 @@ class AuthRepositoryTest {
 
     @Test
     fun setNewPassword_thenLoginSucceeds() = runBlocking {
-        val id = fakeDao.insert(
-            UsuarioEntity(
-                nombre = "SinPass",
-                email = "sinpass@test.com",
-                rol = AppRole.REGISTRADO.storageValue,
-                fechaCreacion = System.currentTimeMillis(),
-                passwordHash = ""
-            )
-        )
+        cuentas.agregarSinContrasena("sinpass@test.com")
+        val pendiente = repository.login("sinpass@test.com", "temporal")
+        assertTrue(pendiente is AuthResult.NeedsPasswordReset)
+        val id = (pendiente as AuthResult.NeedsPasswordReset).userId
         val set = repository.setNewPassword(id, "nueva123")
         assertTrue(set is AuthResult.Success)
         sessionManager.logout()
         val login = repository.login("sinpass@test.com", "nueva123")
         assertTrue(login is AuthResult.Success)
     }
+}
+
+private class FakeCuentasFirebase : CuentasFirebase {
+    private data class Persona(
+        val uid: String,
+        val nombre: String,
+        val email: String,
+        var password: String,
+        val rol: String,
+        val fechaCreacion: Long
+    )
+
+    private val personas = mutableListOf<Persona>()
+    private var nextUid = 1
+
+    fun agregarSinContrasena(email: String) {
+        personas.add(
+            Persona(
+                uid = "uid-${nextUid++}",
+                nombre = email.substringBefore("@"),
+                email = email,
+                password = "",
+                rol = RolFirebase.USUARIO,
+                fechaCreacion = System.currentTimeMillis()
+            )
+        )
+    }
+
+    override suspend fun iniciarSesion(email: String, password: String): ResultadoCuentaFirebase {
+        val persona = personas.find { it.email == email && it.rol == RolFirebase.USUARIO }
+            ?: return ResultadoCuentaFirebase.Error(AuthMessages.CREDENCIALES_INVALIDAS)
+        if (persona.password.isBlank()) {
+            return ResultadoCuentaFirebase.NecesitaContrasena(persona.uid, persona.email)
+        }
+        if (persona.password != password) {
+            return ResultadoCuentaFirebase.Error(AuthMessages.CREDENCIALES_INVALIDAS)
+        }
+        return ResultadoCuentaFirebase.Ok(persona.aCuenta())
+    }
+
+    override suspend fun registrar(
+        nombre: String,
+        email: String,
+        password: String
+    ): ResultadoCuentaFirebase {
+        if (personas.any { it.email == email && it.rol == RolFirebase.USUARIO }) {
+            return ResultadoCuentaFirebase.Error(AuthMessages.CORREO_YA_REGISTRADO)
+        }
+        val persona = Persona(
+            uid = "uid-${nextUid++}",
+            nombre = nombre,
+            email = email,
+            password = password,
+            rol = RolFirebase.USUARIO,
+            fechaCreacion = System.currentTimeMillis()
+        )
+        personas.add(persona)
+        return ResultadoCuentaFirebase.Ok(persona.aCuenta())
+    }
+
+    override suspend fun entrarComoInvitado(): ResultadoCuentaFirebase {
+        val persona = Persona(
+            uid = "uid-${nextUid++}",
+            nombre = "Invitado",
+            email = "",
+            password = "",
+            rol = RolFirebase.INVITADO,
+            fechaCreacion = System.currentTimeMillis()
+        )
+        personas.add(persona)
+        return ResultadoCuentaFirebase.Ok(persona.aCuenta())
+    }
+
+    override suspend fun establecerContrasena(
+        email: String,
+        password: String
+    ): ResultadoCuentaFirebase {
+        val persona = personas.find { it.email == email }
+            ?: return ResultadoCuentaFirebase.Error(AuthMessages.CREDENCIALES_INVALIDAS)
+        persona.password = password
+        return ResultadoCuentaFirebase.Ok(persona.aCuenta())
+    }
+
+    override suspend fun cerrarSesion() = Unit
+
+    private fun Persona.aCuenta() = CuentaFirebase(uid, nombre, email, rol, fechaCreacion)
 }
 
 private class FakeSessionManager : AuthSessionManager {
@@ -176,7 +254,10 @@ private class FakeUsuarioDao : UsuarioDao {
     override suspend fun insertOrReplace(usuario: UsuarioEntity): Long = insert(usuario)
 
     override suspend fun updateProfile(id: Long, nombre: String, email: String, rol: String) {
-        throw UnsupportedOperationException()
+        val index = users.indexOfFirst { it.id == id }
+        if (index >= 0) {
+            users[index] = users[index].copy(nombre = nombre, email = email, rol = rol)
+        }
     }
 
     override suspend fun updatePasswordHash(id: Long, passwordHash: String) {

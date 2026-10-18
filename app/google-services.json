@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "364750925278",
+    "project_id": "laboratorio-fisico-de58e",
+    "storage_bucket": "laboratorio-fisico-de58e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:364750925278:android:0c67b30f746afc1f85c14f",
+        "android_client_info": {
+          "package_name": "laboratoriofisico.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBwnnUUteoW7C2AGtKsn8-4rTJVlpW7QfI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
