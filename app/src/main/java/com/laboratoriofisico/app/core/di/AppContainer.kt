@@ -342,7 +342,10 @@ class AppContainer(context: Context) {
                 appContext = appContext,
                 analisisRepository = analisisMicroscopioRepository,
                 geminiClient = geminiClient,
-                uvcMicroscopeManager = uvcMicroscopeManager
+                uvcMicroscopeManager = uvcMicroscopeManager,
+                medicionRepository = medicionRepository,
+                resultadoRepository = resultadoRepository,
+                sessionRepository = sessionRepository
             )
         }
 

@@ -19,10 +19,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -40,7 +44,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.laboratoriofisico.app.R
 import com.laboratoriofisico.app.backend.model.AnalisisMicroscopio
+import com.laboratoriofisico.app.backend.model.Medicion
 import com.laboratoriofisico.app.backend.model.TipoAnalisisMicroscopio
+import com.laboratoriofisico.app.backend.sangre.NeubauerConteo
+import com.laboratoriofisico.app.backend.sangre.TipoConteoNeubauer
 import com.laboratoriofisico.app.core.util.DateTimeUtils
 import com.laboratoriofisico.app.frontend.ui.components.AyudaControl
 import com.laboratoriofisico.app.frontend.ui.components.BotonAccionPrincipal
@@ -57,6 +64,8 @@ import com.laboratoriofisico.app.frontend.ui.components.LabSurfaceCard
 import com.laboratoriofisico.app.frontend.ui.components.MarkdownAnalysisText
 import com.laboratoriofisico.app.frontend.ui.components.SecondaryButton
 import com.laboratoriofisico.app.frontend.ui.components.UvcMicroscopePreview
+import com.laboratoriofisico.app.usb.UvcMicroscopeManager
+import com.laboratoriofisico.app.frontend.viewmodel.MicroscopioAnalisisUiState
 import com.laboratoriofisico.app.frontend.viewmodel.MicroscopioAnalisisViewModel
 
 @Composable
@@ -143,31 +152,13 @@ fun MicroscopioAnalisisScreen(
             }
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            LabSectionLabel(text = stringResource(R.string.seccion_preview_camara))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(300.dp)
-            ) {
-                if (mostrarPreview) {
-                    UvcMicroscopePreview(
-                        manager = viewModel.uvcMicroscopeManager,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-                if (!uvcState.previewActive) {
-                    Text(
-                        text = uvcState.previewHint(),
-                        modifier = Modifier.padding(16.dp)
-                    )
-                }
-            }
-            uvcState.errorMessage?.let { error ->
-                val (tipo, texto) = clasificarMensaje(error)
-                EstadoAmigable(tipo = tipo, texto = texto)
-            }
-        }
+        PreviewMicroscopio(
+            manager = viewModel.uvcMicroscopeManager,
+            mostrarPreview = mostrarPreview,
+            previewActivo = uvcState.previewActive,
+            aviso = uvcState.previewHint(),
+            error = uvcState.errorMessage
+        )
 
         Column(
             modifier = Modifier
@@ -200,6 +191,7 @@ fun MicroscopioAnalisisScreen(
                         modifier = Modifier.padding(top = 12.dp)
                     )
                 }
+                DatosSangreForm(uiState = uiState, viewModel = viewModel)
             }
 
             uiState.ultimaCapturaPath?.let { path ->
@@ -247,6 +239,41 @@ fun MicroscopioAnalisisScreen(
                     AnalisisTimelineItem(item = item)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PreviewMicroscopio(
+    manager: UvcMicroscopeManager,
+    mostrarPreview: Boolean,
+    previewActivo: Boolean,
+    aviso: String,
+    error: String?
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LabSectionLabel(text = stringResource(R.string.seccion_preview_camara))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(300.dp)
+        ) {
+            if (mostrarPreview) {
+                UvcMicroscopePreview(
+                    manager = manager,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            if (!previewActivo) {
+                Text(
+                    text = aviso,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        }
+        error?.let { raw ->
+            val (tipo, texto) = clasificarMensaje(raw)
+            EstadoAmigable(tipo = tipo, texto = texto)
         }
     }
 }
@@ -380,6 +407,117 @@ private fun CapturedImage(path: String) {
                 .height(180.dp)
         )
     }
+}
+
+@Composable
+private fun DatosSangreForm(
+    uiState: MicroscopioAnalisisUiState,
+    viewModel: MicroscopioAnalisisViewModel
+) {
+    val conteo = viewModel.conteoNeubauer(uiState)
+    LabSurfaceCard {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = "Datos de la muestra",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            CampoSangre("Edad", uiState.edad, viewModel::onEdadSangre, KeyboardType.Number)
+            CampoSangre("Peso", uiState.peso, viewModel::onPesoSangre, KeyboardType.Decimal)
+            CampoSangre("Qué comió", uiState.comio, viewModel::onComioSangre, KeyboardType.Text)
+            CampoSangre("A qué hora", uiState.horaComida, viewModel::onHoraComidaSangre, KeyboardType.Text)
+            CampoSangre("Glucosa (mg/dL)", uiState.glucosa, viewModel::onGlucosaSangre, KeyboardType.Decimal)
+            Text(
+                text = "Células contadas en la cámara de Neubauer",
+                style = MaterialTheme.typography.bodySmall
+            )
+            OpcionConteo(
+                titulo = "Glóbulos rojos 1:200",
+                seleccionado = uiState.tipoConteo == TipoConteoNeubauer.ROJOS,
+                onClick = { viewModel.onTipoConteoSangre(TipoConteoNeubauer.ROJOS) }
+            )
+            OpcionConteo(
+                titulo = "Glóbulos blancos 1:20",
+                seleccionado = uiState.tipoConteo == TipoConteoNeubauer.BLANCOS,
+                onClick = { viewModel.onTipoConteoSangre(TipoConteoNeubauer.BLANCOS) }
+            )
+            OpcionConteo(
+                titulo = "Otra dilución",
+                seleccionado = uiState.tipoConteo == TipoConteoNeubauer.OTRA,
+                onClick = { viewModel.onTipoConteoSangre(TipoConteoNeubauer.OTRA) }
+            )
+            CampoSangre("N (células contadas)", uiState.celulasContadas, viewModel::onCelulasSangre, KeyboardType.Number)
+            if (uiState.tipoConteo == TipoConteoNeubauer.OTRA) {
+                CampoSangre("Dilución", uiState.dilucion, viewModel::onDilucionSangre, KeyboardType.Decimal)
+                CampoSangre("Volumen contado (µL)", uiState.volumenMicrolitros, viewModel::onVolumenSangre, KeyboardType.Decimal)
+            }
+            Text(
+                text = when {
+                    conteo != null -> "Células por µL: ${NeubauerConteo.texto(conteo)}"
+                    uiState.celulasContadas.isBlank() -> "Escribe N para ver el conteo."
+                    uiState.tipoConteo == TipoConteoNeubauer.OTRA -> "Falta la dilución o el volumen."
+                    else -> "N tiene que ser mayor que 0."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold
+            )
+            SecondaryButton(
+                text = "Guardar lectura",
+                onClick = viewModel::guardarLecturaSangre,
+                enabled = !uiState.guardandoLectura
+            )
+            if (uiState.lecturasSangre.isNotEmpty()) {
+                Text(
+                    text = "Lecturas guardadas",
+                    style = MaterialTheme.typography.titleSmall
+                )
+                uiState.lecturasSangre.forEach { lectura ->
+                    LecturaSangreLinea(lectura)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CampoSangre(
+    etiqueta: String,
+    valor: String,
+    onChange: (String) -> Unit,
+    teclado: KeyboardType
+) {
+    OutlinedTextField(
+        value = valor,
+        onValueChange = onChange,
+        label = { Text(etiqueta) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = teclado),
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+@Composable
+private fun OpcionConteo(
+    titulo: String,
+    seleccionado: Boolean,
+    onClick: () -> Unit
+) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+        RadioButton(selected = seleccionado, onClick = onClick)
+        Text(
+            text = titulo,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 12.dp)
+        )
+    }
+}
+
+@Composable
+private fun LecturaSangreLinea(lectura: Medicion) {
+    Text(
+        text = "${DateTimeUtils.format(lectura.timestamp)} · ${lectura.nombre}: ${NeubauerConteo.texto(lectura.valor)} ${lectura.unidad}",
+        style = MaterialTheme.typography.bodySmall
+    )
 }
 
 @Composable

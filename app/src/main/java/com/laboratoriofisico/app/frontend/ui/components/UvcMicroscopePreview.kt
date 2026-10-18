@@ -21,6 +21,7 @@ fun UvcMicroscopePreview(
     val activity = context as? FragmentActivity
     val containerId = remember { View.generateViewId() }
     val tag = remember { "uvc_microscope_$containerId" }
+    val fragmentAgregado = remember { booleanArrayOf(false) }
 
     AndroidView(
         factory = { ctx ->
@@ -31,11 +32,25 @@ fun UvcMicroscopePreview(
         },
         modifier = modifier,
         update = { view ->
+            if (fragmentAgregado[0]) return@AndroidView
             val fragmentManager = activity?.supportFragmentManager ?: return@AndroidView
-            if (fragmentManager.findFragmentByTag(tag) != null) return@AndroidView
+            if (fragmentManager.findFragmentByTag(tag) != null ||
+                fragmentManager.fragments.any { it is UvcMicroscopeFragment }
+            ) {
+                fragmentAgregado[0] = true
+                return@AndroidView
+            }
+            fragmentAgregado[0] = true
             view.post {
-                if (!view.isAttachedToWindow) return@post
-                if (fragmentManager.findFragmentByTag(tag) != null) return@post
+                if (!view.isAttachedToWindow) {
+                    fragmentAgregado[0] = false
+                    return@post
+                }
+                if (fragmentManager.findFragmentByTag(tag) != null ||
+                    fragmentManager.fragments.any { it is UvcMicroscopeFragment }
+                ) {
+                    return@post
+                }
                 fragmentManager.beginTransaction()
                     .replace(view.id, UvcMicroscopeFragment(manager), tag)
                     .commitAllowingStateLoss()

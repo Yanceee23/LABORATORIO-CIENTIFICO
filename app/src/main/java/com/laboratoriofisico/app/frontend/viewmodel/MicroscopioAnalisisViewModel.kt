@@ -5,8 +5,15 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.laboratoriofisico.app.backend.model.AnalisisMicroscopio
+import com.laboratoriofisico.app.backend.model.Medicion
+import com.laboratoriofisico.app.backend.model.Resultado
 import com.laboratoriofisico.app.backend.model.TipoAnalisisMicroscopio
 import com.laboratoriofisico.app.backend.repository.AnalisisMicroscopioRepository
+import com.laboratoriofisico.app.backend.repository.MedicionRepository
+import com.laboratoriofisico.app.backend.repository.ResultadoRepository
+import com.laboratoriofisico.app.backend.sangre.NeubauerConteo
+import com.laboratoriofisico.app.backend.sangre.TipoConteoNeubauer
+import com.laboratoriofisico.app.backend.session.SessionRepository
 import com.laboratoriofisico.app.ia.gemini.GeminiClient
 import com.laboratoriofisico.app.ia.gemini.GeminiPrompts
 import com.laboratoriofisico.app.usb.UvcMicroscopeManager
@@ -34,7 +41,18 @@ data class MicroscopioAnalisisUiState(
     val error: String? = null,
     val historial: List<AnalisisMicroscopio> = emptyList(),
     val uvcState: UvcMicroscopeState = UvcMicroscopeState(),
-    val incluirHipotesisEducativaSangre: Boolean = false
+    val incluirHipotesisEducativaSangre: Boolean = false,
+    val edad: String = "",
+    val peso: String = "",
+    val comio: String = "",
+    val horaComida: String = "",
+    val glucosa: String = "",
+    val celulasContadas: String = "",
+    val tipoConteo: TipoConteoNeubauer = TipoConteoNeubauer.ROJOS,
+    val dilucion: String = "",
+    val volumenMicrolitros: String = "",
+    val lecturasSangre: List<Medicion> = emptyList(),
+    val guardandoLectura: Boolean = false
 )
 
 class MicroscopioAnalisisViewModel(
@@ -42,7 +60,10 @@ class MicroscopioAnalisisViewModel(
     private val appContext: Context,
     private val analisisRepository: AnalisisMicroscopioRepository,
     private val geminiClient: GeminiClient,
-    val uvcMicroscopeManager: UvcMicroscopeManager
+    val uvcMicroscopeManager: UvcMicroscopeManager,
+    private val medicionRepository: MedicionRepository,
+    private val resultadoRepository: ResultadoRepository,
+    private val sessionRepository: SessionRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MicroscopioAnalisisUiState(tipo = tipo))
@@ -84,6 +105,20 @@ class MicroscopioAnalisisViewModel(
             runCatching {
                 val experimentoId = analisisRepository.ensureExperimento(tipo)
                 _uiState.update { it.copy(experimentoId = experimentoId) }
+                if (tipo == TipoAnalisisMicroscopio.SANGRE) {
+                    viewModelScope.launch {
+                        medicionRepository.observeByExperimento(experimentoId).collect { lecturas ->
+                            _uiState.update {
+                                it.copy(
+                                    lecturasSangre = lecturas.filter { medicion ->
+                                        medicion.unidad == NeubauerConteo.UNIDAD_GLUCOSA ||
+                                            medicion.unidad == NeubauerConteo.UNIDAD
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
                 analisisRepository.observeByExperimento(experimentoId).collect { historial ->
                     _uiState.update { it.copy(historial = historial) }
                 }
@@ -183,10 +218,9 @@ class MicroscopioAnalisisViewModel(
         val imagenPath = state.ultimaCapturaPath ?: return
         if (state.analizando || analysisInFlight) return
         val imageKey = analysisCacheKey(imagenPath)
-        if (
-            imageKey in analyzedImageKeys ||
+        val repetidaEnHistorial = tipo != TipoAnalisisMicroscopio.SANGRE &&
             state.historial.any { it.imagenPath == imagenPath && it.promptVersion == promptVersionActual() }
-        ) {
+        if (imageKey in analyzedImageKeys || repetidaEnHistorial) {
             com.laboratoriofisico.app.usb.UsbDebugNdjson.log(
                 hypothesisId = "GEMINI-ONE-CALL",
                 location = "MicroscopioAnalisisViewModel.analizarCaptura.cache",
@@ -263,6 +297,123 @@ class MicroscopioAnalisisViewModel(
         _uiState.update { it.copy(incluirHipotesisEducativaSangre = value) }
     }
 
+    fun onEdadSangre(value: String) = _uiState.update { it.copy(edad = value) }
+
+    fun onPesoSangre(value: String) = _uiState.update { it.copy(peso = value) }
+
+    fun onComioSangre(value: String) = _uiState.update { it.copy(comio = value) }
+
+    fun onHoraComidaSangre(value: String) = _uiState.update { it.copy(horaComida = value) }
+
+    fun onGlucosaSangre(value: String) = _uiState.update { it.copy(glucosa = value) }
+
+    fun onCelulasSangre(value: String) = _uiState.update { it.copy(celulasContadas = value) }
+
+    fun onTipoConteoSangre(value: TipoConteoNeubauer) = _uiState.update { it.copy(tipoConteo = value) }
+
+    fun onDilucionSangre(value: String) = _uiState.update { it.copy(dilucion = value) }
+
+    fun onVolumenSangre(value: String) = _uiState.update { it.copy(volumenMicrolitros = value) }
+
+    fun conteoNeubauer(state: MicroscopioAnalisisUiState): Double? {
+        val n = state.celulasContadas.trim().toIntOrNull() ?: return null
+        return NeubauerConteo.calcular(
+            tipo = state.tipoConteo,
+            celulasContadas = n,
+            dilucion = state.dilucion.aNumeroPositivo(),
+            volumenMicrolitros = state.volumenMicrolitros.aNumeroPositivo()
+        )
+    }
+
+    fun guardarLecturaSangre() {
+        if (tipo != TipoAnalisisMicroscopio.SANGRE || _uiState.value.guardandoLectura) return
+        val state = _uiState.value
+        val glucosa = state.glucosa.aNumeroPositivo()
+        val glucosaEscrita = state.glucosa.isNotBlank()
+        val glucosaValida = glucosa != null && glucosa <= 600.0
+        val conteo = conteoNeubauer(state)
+        if (glucosaEscrita && !glucosaValida) {
+            _uiState.update {
+                it.copy(error = "La glucosa debe ser mayor que 0 y no pasar de 600 mg/dL.", mensaje = null)
+            }
+            return
+        }
+        if (!glucosaValida && conteo == null) {
+            val detalle = if (state.celulasContadas.isNotBlank() && state.tipoConteo == TipoConteoNeubauer.OTRA) {
+                "Para otra dilución escribe la dilución y el volumen en µL."
+            } else {
+                "Escribe la glucosa o las células contadas."
+            }
+            _uiState.update { it.copy(error = detalle, mensaje = null) }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(guardandoLectura = true, error = null, mensaje = null) }
+            runCatching {
+                val experimentoId = state.experimentoId ?: analisisRepository.ensureExperimento(tipo)
+                val usuarioId = sessionRepository.getLoggedInUserId()
+                    ?: throw IllegalStateException("Se requiere una cuenta registrada para guardar.")
+                val notas = notasPersonales(state)
+                val ahora = System.currentTimeMillis()
+                if (glucosaValida && glucosa != null) {
+                    val medicionId = medicionRepository.insert(
+                        Medicion(
+                            experimentoId = experimentoId,
+                            usuarioId = usuarioId,
+                            nombre = "Glucosa",
+                            valor = glucosa,
+                            unidad = NeubauerConteo.UNIDAD_GLUCOSA,
+                            timestamp = ahora
+                        )
+                    )
+                    resultadoRepository.insert(
+                        Resultado(
+                            medicionId = medicionId,
+                            usuarioId = usuarioId,
+                            valorCalculado = glucosa,
+                            unidad = NeubauerConteo.UNIDAD_GLUCOSA,
+                            notas = notas,
+                            timestamp = ahora
+                        )
+                    )
+                }
+                if (conteo != null) {
+                    val medicionId = medicionRepository.insert(
+                        Medicion(
+                            experimentoId = experimentoId,
+                            usuarioId = usuarioId,
+                            nombre = state.tipoConteo.titulo,
+                            valor = conteo,
+                            unidad = NeubauerConteo.UNIDAD,
+                            timestamp = ahora
+                        )
+                    )
+                    resultadoRepository.insert(
+                        Resultado(
+                            medicionId = medicionId,
+                            usuarioId = usuarioId,
+                            valorCalculado = conteo,
+                            unidad = NeubauerConteo.UNIDAD,
+                            notas = notas,
+                            timestamp = ahora
+                        )
+                    )
+                }
+            }.onSuccess {
+                _uiState.update {
+                    it.copy(guardandoLectura = false, mensaje = "Lectura guardada.", error = null)
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        guardandoLectura = false,
+                        error = error.message ?: "No se pudo guardar la lectura."
+                    )
+                }
+            }
+        }
+    }
+
     private fun promptVersionActual(): Int = when (tipo) {
         TipoAnalisisMicroscopio.SANGRE -> GeminiPrompts.SANGRE_PROMPT_VERSION
         else -> GeminiPrompts.MICROSCOPIO_PROMPT_VERSION
@@ -273,7 +424,8 @@ class MicroscopioAnalisisViewModel(
         TipoAnalisisMicroscopio.PIEL -> GeminiPrompts.analizarPielMicroscopio()
         TipoAnalisisMicroscopio.HOJA -> GeminiPrompts.analizarHojaMicroscopio()
         TipoAnalisisMicroscopio.SANGRE -> GeminiPrompts.analizarSangreMicroscopio(
-            solicitaHipotesisEducativa = _uiState.value.incluirHipotesisEducativaSangre
+            solicitaHipotesisEducativa = _uiState.value.incluirHipotesisEducativaSangre,
+            datosAnotados = datosAnotadosSangre()
         )
     }
 
@@ -344,6 +496,48 @@ class MicroscopioAnalisisViewModel(
 
     private fun analysisCacheKey(imagenPath: String): String {
         val file = File(imagenPath)
-        return "${file.absolutePath}|${file.lastModified()}|${file.length()}|${promptVersionActual()}"
+        val base = "${file.absolutePath}|${file.lastModified()}|${file.length()}|${promptVersionActual()}"
+        return if (tipo == TipoAnalisisMicroscopio.SANGRE) {
+            "$base|${datosAnotadosSangre()}"
+        } else {
+            base
+        }
+    }
+
+    private fun datosAnotadosSangre(): String {
+        val state = _uiState.value
+        val conteo = conteoNeubauer(state)
+        val glucosa = state.glucosa.aNumeroPositivo()
+        return buildString {
+            appendLine("Edad: ${state.edad.ifBlank { "no indicada" }}")
+            appendLine("Peso: ${state.peso.ifBlank { "no indicado" }}")
+            appendLine("Qué comió: ${state.comio.ifBlank { "no indicado" }}")
+            appendLine("Hora de la comida: ${state.horaComida.ifBlank { "no indicada" }}")
+            if (glucosa != null && glucosa <= 600.0) {
+                appendLine("Glucosa anotada: ${NeubauerConteo.texto(glucosa)} mg/dL")
+            } else {
+                appendLine("Glucosa: no indicada")
+            }
+            if (conteo != null) {
+                appendLine(
+                    "Conteo de cámara de Neubauer (${state.tipoConteo.titulo}): " +
+                        "${NeubauerConteo.texto(conteo)} células por µL. " +
+                        "Es un cálculo de la cámara, no un conteo de la foto."
+                )
+            } else {
+                appendLine("Conteo de cámara de Neubauer: no indicado.")
+            }
+        }.trim()
+    }
+
+    private fun notasPersonales(state: MicroscopioAnalisisUiState): String =
+        "Edad: ${state.edad.ifBlank { "no indicada" }}. " +
+            "Peso: ${state.peso.ifBlank { "no indicado" }}. " +
+            "Comió: ${state.comio.ifBlank { "no indicado" }}. " +
+            "Hora: ${state.horaComida.ifBlank { "no indicada" }}."
+
+    private fun String.aNumeroPositivo(): Double? {
+        val valor = trim().replace(',', '.').toDoubleOrNull() ?: return null
+        return valor.takeIf { it > 0.0 }
     }
 }

@@ -2,7 +2,7 @@ package com.laboratoriofisico.app.ia.gemini
 
 object GeminiPrompts {
     const val MICROSCOPIO_PROMPT_VERSION = 2
-    const val SANGRE_PROMPT_VERSION = 3
+    const val SANGRE_PROMPT_VERSION = 4
 
     val TUTOR_SYSTEM = """
         Sos un tutor de física paciente y claro para estudiantes de bachillerato y primeros años universitarios.
@@ -200,7 +200,10 @@ object GeminiPrompts {
         - Organiza la respuesta con estos títulos markdown: ## Observaciones visuales, ## Interpretación biológica, ## Límites de la imagen, ## Conclusión educativa.
     """.trimIndent()
 
-    fun analizarSangreMicroscopio(solicitaHipotesisEducativa: Boolean): String = """
+    fun analizarSangreMicroscopio(
+        solicitaHipotesisEducativa: Boolean,
+        datosAnotados: String
+    ): String = """
         Observa la fotografía de una muestra vista al microscopio. Responde en español, claro para estudiantes, con un máximo de 300 palabras.
         La primera línea debe ser exactamente esta, sin título delante:
         No soy doctor. Esta es una observación educativa y no un diagnóstico.
@@ -235,11 +238,13 @@ object GeminiPrompts {
 
         Reglas:
         - No uses estas palabras: anemia, infección, leucemia, normal, anormal, sano, enfermo.
-        - No des conteos exactos. Usa un rango.
+        - No inventes un conteo a partir de la foto. Si el estudiante ya calculó Neubauer, cita ese número como resultado de la cámara. Si no hay conteo de cámara, usa un rango o escribe: no se puede determinar con esta imagen.
         - Si algo no se ve, escribe: no se puede determinar con esta imagen.
         - No añadas secciones.
+        - Con la edad, el peso, lo que comió, la hora y la glucosa, describe en Qué se ve y en los glóbulos cómo se ve la muestra. No diagnostiques.
+        - Datos anotados por el estudiante. No inventes los que falten:
         ${if (solicitaHipotesisEducativa) "- Aunque se pidió una nota extra, no propongas un tipo de sangre para esta muestra y no salgas de estas secciones." else "- No incluyas hipótesis sobre el tipo de sangre de esta muestra."}
-    """.trimIndent()
+    """.trimIndent() + "\n" + datosAnotados.trim()
 
     fun notas(contexto: String): String = """
         Generá notas de estudio concisas a partir del material de física provisto.
