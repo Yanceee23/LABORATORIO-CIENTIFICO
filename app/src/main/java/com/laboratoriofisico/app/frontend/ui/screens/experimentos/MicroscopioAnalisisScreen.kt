@@ -20,7 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -43,11 +42,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.laboratoriofisico.app.R
+import com.laboratoriofisico.app.backend.hoja.HojaCalculoNotas
 import com.laboratoriofisico.app.backend.model.AnalisisMicroscopio
-import com.laboratoriofisico.app.backend.model.Medicion
 import com.laboratoriofisico.app.backend.model.TipoAnalisisMicroscopio
+import com.laboratoriofisico.app.backend.piel.PielCalculoNotas
 import com.laboratoriofisico.app.backend.sangre.NeubauerConteo
-import com.laboratoriofisico.app.backend.sangre.TipoConteoNeubauer
+import com.laboratoriofisico.app.backend.sangre.SangreFormulario
 import com.laboratoriofisico.app.core.util.DateTimeUtils
 import com.laboratoriofisico.app.frontend.ui.components.AyudaControl
 import com.laboratoriofisico.app.frontend.ui.components.BotonAccionPrincipal
@@ -146,9 +146,10 @@ fun MicroscopioAnalisisScreen(
         ) {
             LabBackLink(onClick = onNavigateBack)
             LabScreenTitle(title = tituloClaro)
-            ExperimentoGuiaCard(guia = guiaMicroscopio(tituloClaro))
             if (uiState.tipo == TipoAnalisisMicroscopio.SANGRE) {
-                DisclaimerSangre()
+                FormularioSangre(uiState = uiState, viewModel = viewModel)
+            } else {
+                ExperimentoGuiaCard(guia = guiaMicroscopio(tituloClaro))
             }
         }
 
@@ -178,21 +179,6 @@ fun MicroscopioAnalisisScreen(
                 onAnalyze = viewModel::analizarCaptura,
                 onPickFallback = { galleryLauncher.launch("image/*") }
             )
-
-            if (uiState.tipo == TipoAnalisisMicroscopio.SANGRE) {
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Checkbox(
-                        checked = uiState.incluirHipotesisEducativaSangre,
-                        onCheckedChange = viewModel::setIncluirHipotesisEducativaSangre
-                    )
-                    Text(
-                        text = "Pedir una hipótesis educativa especulativa. No es diagnóstico y no determina ABO/Rh.",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(top = 12.dp)
-                    )
-                }
-                DatosSangreForm(uiState = uiState, viewModel = viewModel)
-            }
 
             uiState.ultimaCapturaPath?.let { path ->
                 LabSectionLabel(text = stringResource(R.string.micro_ultima_captura))
@@ -229,14 +215,42 @@ fun MicroscopioAnalisisScreen(
                 )
             }
 
+            if (uiState.tipo == TipoAnalisisMicroscopio.SANGRE) {
+                uiState.historial.firstOrNull()?.let { item ->
+                    AnalisisIACard(tipo = item.tipoExperimento, analisis = item.analisis)
+                }
+                CalculadoraNeubauer(uiState = uiState, viewModel = viewModel)
+            }
+
             LabSectionLabel(text = stringResource(R.string.micro_historial))
             if (uiState.historial.isEmpty()) {
                 LabSurfaceCard {
                     Text(stringResource(R.string.micro_vacio))
                 }
             } else {
-                uiState.historial.forEach { item ->
-                    AnalisisTimelineItem(item = item)
+                uiState.historial.forEachIndexed { index, item ->
+                    val notasLocales = when {
+                        uiState.tipo == TipoAnalisisMicroscopio.PIEL && index != 0 ->
+                            PielCalculoNotas.bloque(item.analisis)
+                        uiState.tipo == TipoAnalisisMicroscopio.HOJA && index != 0 ->
+                            HojaCalculoNotas.bloque(item.analisis)
+                        else -> null
+                    }
+                    AnalisisTimelineItem(item = item, notasLocales = notasLocales)
+                    if (uiState.tipo == TipoAnalisisMicroscopio.PIEL && index == 0) {
+                        CalculadoraPielEscamas(
+                            imagenPath = item.imagenPath,
+                            analisisGuardado = item.analisis,
+                            onGuardar = { bloque -> viewModel.guardarMedidasPiel(item.imagenPath, bloque) }
+                        )
+                    }
+                    if (uiState.tipo == TipoAnalisisMicroscopio.HOJA && index == 0) {
+                        CalculadoraHoja(
+                            imagenPath = item.imagenPath,
+                            analisisGuardado = item.analisis,
+                            onGuardar = { bloque -> viewModel.guardarMedidasHoja(item.imagenPath, bloque) }
+                        )
+                    }
                 }
             }
         }
@@ -328,7 +342,15 @@ private fun CameraActions(
 }
 
 @Composable
-private fun AnalisisTimelineItem(item: AnalisisMicroscopio) {
+private fun AnalisisTimelineItem(
+    item: AnalisisMicroscopio,
+    notasLocales: String? = null
+) {
+    val analisisVisible = when (item.tipoExperimento) {
+        TipoAnalisisMicroscopio.PIEL -> PielCalculoNotas.descripcionIa(item.analisis)
+        TipoAnalisisMicroscopio.HOJA -> HojaCalculoNotas.descripcionIa(item.analisis)
+        else -> item.analisis
+    }
     LabSurfaceCard {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
@@ -336,7 +358,10 @@ private fun AnalisisTimelineItem(item: AnalisisMicroscopio) {
                 style = MaterialTheme.typography.labelMedium
             )
             CapturedImage(path = item.imagenPath)
-            AnalisisIACard(tipo = item.tipoExperimento, analisis = item.analisis)
+            AnalisisIACard(tipo = item.tipoExperimento, analisis = analisisVisible)
+            notasLocales?.let { notas ->
+                Text(text = notas, style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }
@@ -410,71 +435,98 @@ private fun CapturedImage(path: String) {
 }
 
 @Composable
-private fun DatosSangreForm(
+private fun FormularioSangre(
     uiState: MicroscopioAnalisisUiState,
     viewModel: MicroscopioAnalisisViewModel
 ) {
-    val conteo = viewModel.conteoNeubauer(uiState)
+    val glucosaNumero = uiState.glucosa.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
+    val equivalente = glucosaNumero?.let { SangreFormulario.equivalente(it, uiState.unidadGlucosa) }
+    LabSurfaceCard {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            CampoSangre("¿Qué comiste?", uiState.comio, viewModel::onComioSangre, KeyboardType.Text)
+            Text("¿A qué hora comiste?", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                CampoSangre("Hora", uiState.horaComida, viewModel::onHoraComidaSangre, KeyboardType.Number, Modifier.weight(1f))
+                CampoSangre("Min", uiState.minutoComida, viewModel::onMinutoComidaSangre, KeyboardType.Number, Modifier.weight(1f))
+            }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                OpcionTexto("AM", uiState.periodoComida == "AM") { viewModel.onPeriodoComidaSangre("AM") }
+                OpcionTexto("PM", uiState.periodoComida == "PM") { viewModel.onPeriodoComidaSangre("PM") }
+            }
+            Text(
+                text = SangreFormulario.hora(uiState.horaComida, uiState.minutoComida, uiState.periodoComida),
+                style = MaterialTheme.typography.bodySmall
+            )
+            CampoSangre("Glucosa en sangre", uiState.glucosa, viewModel::onGlucosaSangre, KeyboardType.Decimal)
+            Row(modifier = Modifier.fillMaxWidth()) {
+                OpcionTexto("mg/dL", uiState.unidadGlucosa == SangreFormulario.MG_DL) {
+                    viewModel.onUnidadGlucosaSangre(SangreFormulario.MG_DL)
+                }
+                OpcionTexto("mmol/L", uiState.unidadGlucosa == SangreFormulario.MMOL_L) {
+                    viewModel.onUnidadGlucosaSangre(SangreFormulario.MMOL_L)
+                }
+            }
+            Text(
+                text = if (equivalente == null) {
+                    "mg/dL = mmol/L × 18. mmol/L = mg/dL ÷ 18."
+                } else {
+                    "Equivalente: $equivalente. mg/dL = mmol/L × 18. mmol/L = mg/dL ÷ 18."
+                },
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text("¿Haces actividad física?", style = MaterialTheme.typography.bodyMedium)
+            Row(modifier = Modifier.fillMaxWidth()) {
+                OpcionTexto("Sí", uiState.haceActividad) { viewModel.onHaceActividadSangre(true) }
+                OpcionTexto("No", !uiState.haceActividad) { viewModel.onHaceActividadSangre(false) }
+            }
+            if (uiState.haceActividad) {
+                CampoSangre("Minutos por día", uiState.minutosActividad, viewModel::onMinutosActividadSangre, KeyboardType.Number)
+                CampoSangre("Tipo de actividad (opcional)", uiState.tipoActividad, viewModel::onTipoActividadSangre, KeyboardType.Text)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalculadoraNeubauer(
+    uiState: MicroscopioAnalisisUiState,
+    viewModel: MicroscopioAnalisisViewModel
+) {
+    val rojos = uiState.nRojos.toIntOrNull()?.let(NeubauerConteo::rojos)
+    val blancos = uiState.nBlancos.toIntOrNull()?.let(NeubauerConteo::blancos)
+    val general = NeubauerConteo.general(
+        uiState.nGeneral.toIntOrNull() ?: 0,
+        uiState.dilucionGeneral.trim().replace(',', '.').toDoubleOrNull() ?: 0.0,
+        uiState.areaGeneral.trim().replace(',', '.').toDoubleOrNull() ?: 0.0
+    )
     LabSurfaceCard {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                text = "Datos de la muestra",
+                text = "Cálculo educativo, no es un diagnóstico",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold
             )
-            CampoSangre("Edad", uiState.edad, viewModel::onEdadSangre, KeyboardType.Number)
-            CampoSangre("Peso", uiState.peso, viewModel::onPesoSangre, KeyboardType.Decimal)
-            CampoSangre("Qué comió", uiState.comio, viewModel::onComioSangre, KeyboardType.Text)
-            CampoSangre("A qué hora", uiState.horaComida, viewModel::onHoraComidaSangre, KeyboardType.Text)
-            CampoSangre("Glucosa (mg/dL)", uiState.glucosa, viewModel::onGlucosaSangre, KeyboardType.Decimal)
             Text(
-                text = "Células contadas en la cámara de Neubauer",
+                text = "Solo vale con cámara de Neubauer y estas diluciones. N sale del conteo de la foto y puedes corregirlo.",
                 style = MaterialTheme.typography.bodySmall
             )
-            OpcionConteo(
-                titulo = "Glóbulos rojos 1:200",
-                seleccionado = uiState.tipoConteo == TipoConteoNeubauer.ROJOS,
-                onClick = { viewModel.onTipoConteoSangre(TipoConteoNeubauer.ROJOS) }
-            )
-            OpcionConteo(
-                titulo = "Glóbulos blancos 1:20",
-                seleccionado = uiState.tipoConteo == TipoConteoNeubauer.BLANCOS,
-                onClick = { viewModel.onTipoConteoSangre(TipoConteoNeubauer.BLANCOS) }
-            )
-            OpcionConteo(
-                titulo = "Otra dilución",
-                seleccionado = uiState.tipoConteo == TipoConteoNeubauer.OTRA,
-                onClick = { viewModel.onTipoConteoSangre(TipoConteoNeubauer.OTRA) }
-            )
-            CampoSangre("N (células contadas)", uiState.celulasContadas, viewModel::onCelulasSangre, KeyboardType.Number)
-            if (uiState.tipoConteo == TipoConteoNeubauer.OTRA) {
-                CampoSangre("Dilución", uiState.dilucion, viewModel::onDilucionSangre, KeyboardType.Decimal)
-                CampoSangre("Volumen contado (µL)", uiState.volumenMicrolitros, viewModel::onVolumenSangre, KeyboardType.Decimal)
-            }
+            CampoSangre("N glóbulos rojos", uiState.nRojos, viewModel::onNRojosSangre, KeyboardType.Number)
             Text(
-                text = when {
-                    conteo != null -> "Células por µL: ${NeubauerConteo.texto(conteo)}"
-                    uiState.celulasContadas.isBlank() -> "Escribe N para ver el conteo."
-                    uiState.tipoConteo == TipoConteoNeubauer.OTRA -> "Falta la dilución o el volumen."
-                    else -> "N tiene que ser mayor que 0."
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold
+                text = "Glóbulos rojos por µL = N × 10.000 (dilución 1:200, 5 cuadros pequeños). ${rojos?.let { NeubauerConteo.texto(it) } ?: "—"}",
+                style = MaterialTheme.typography.bodySmall
             )
-            SecondaryButton(
-                text = "Guardar lectura",
-                onClick = viewModel::guardarLecturaSangre,
-                enabled = !uiState.guardandoLectura
+            CampoSangre("N glóbulos blancos", uiState.nBlancos, viewModel::onNBlancosSangre, KeyboardType.Number)
+            Text(
+                text = "Glóbulos blancos por µL = N × 50 (dilución 1:20, 4 cuadros grandes). ${blancos?.let { NeubauerConteo.texto(it) } ?: "—"}",
+                style = MaterialTheme.typography.bodySmall
             )
-            if (uiState.lecturasSangre.isNotEmpty()) {
-                Text(
-                    text = "Lecturas guardadas",
-                    style = MaterialTheme.typography.titleSmall
-                )
-                uiState.lecturasSangre.forEach { lectura ->
-                    LecturaSangreLinea(lectura)
-                }
-            }
+            CampoSangre("N general", uiState.nGeneral, viewModel::onNGeneralSangre, KeyboardType.Number)
+            CampoSangre("Dilución", uiState.dilucionGeneral, viewModel::onDilucionGeneralSangre, KeyboardType.Decimal)
+            CampoSangre("Área contada (mm²)", uiState.areaGeneral, viewModel::onAreaGeneralSangre, KeyboardType.Decimal)
+            Text(
+                text = "Células/µL = (N × dilución) / (área contada en mm² × 0,1). ${general?.let { NeubauerConteo.texto(it) } ?: "—"}",
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }
@@ -484,7 +536,8 @@ private fun CampoSangre(
     etiqueta: String,
     valor: String,
     onChange: (String) -> Unit,
-    teclado: KeyboardType
+    teclado: KeyboardType,
+    modifier: Modifier = Modifier.fillMaxWidth()
 ) {
     OutlinedTextField(
         value = valor,
@@ -492,52 +545,23 @@ private fun CampoSangre(
         label = { Text(etiqueta) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = teclado),
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier
     )
 }
 
 @Composable
-private fun OpcionConteo(
+private fun OpcionTexto(
     titulo: String,
     seleccionado: Boolean,
     onClick: () -> Unit
 ) {
-    Row(modifier = Modifier.fillMaxWidth()) {
+    Row {
         RadioButton(selected = seleccionado, onClick = onClick)
         Text(
             text = titulo,
             style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(top = 12.dp)
+            fontWeight = if (seleccionado) FontWeight.Bold else FontWeight.Normal,
+            modifier = Modifier.padding(top = 12.dp, end = 12.dp)
         )
-    }
-}
-
-@Composable
-private fun LecturaSangreLinea(lectura: Medicion) {
-    Text(
-        text = "${DateTimeUtils.format(lectura.timestamp)} · ${lectura.nombre}: ${NeubauerConteo.texto(lectura.valor)} ${lectura.unidad}",
-        style = MaterialTheme.typography.bodySmall
-    )
-}
-
-@Composable
-private fun DisclaimerSangre() {
-    LabSurfaceCard {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                androidx.compose.material3.Icon(
-                    imageVector = Icons.Default.Psychology,
-                    contentDescription = null
-                )
-                Text(
-                    text = "Aclaración educativa obligatoria",
-                    style = MaterialTheme.typography.titleSmall
-                )
-            }
-            Text(
-                text = "Este análisis NO es un diagnóstico médico. El tipo de sangre ABO/Rh requiere reactivos químicos y no puede determinarse de forma fiable solo por imagen.",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
     }
 }

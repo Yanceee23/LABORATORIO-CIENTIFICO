@@ -8,23 +8,23 @@ class NeubauerConteoTest {
 
     @Test
     fun rojos_multiplicaPorDiezMil() {
-        assertEquals(50_000.0, NeubauerConteo.calcular(TipoConteoNeubauer.ROJOS, 5)!!, 1e-9)
+        assertEquals(50_000.0, NeubauerConteo.rojos(5)!!, 1e-9)
     }
 
     @Test
     fun blancos_multiplicaPorCincuenta() {
-        assertEquals(400.0, NeubauerConteo.calcular(TipoConteoNeubauer.BLANCOS, 8)!!, 1e-9)
+        assertEquals(400.0, NeubauerConteo.blancos(8)!!, 1e-9)
     }
 
     @Test
-    fun otraDilucion_usaFormulaGeneral() {
-        assertEquals(2_500.0, NeubauerConteo.calcular(TipoConteoNeubauer.OTRA, 10, 50.0, 0.2)!!, 1e-9)
+    fun general_dividePorAreaYProfundidad() {
+        assertEquals(100_000.0, NeubauerConteo.general(10, 200.0, 0.2)!!, 1e-9)
     }
 
     @Test
     fun noCalculaSiFaltanDatos() {
-        assertNull(NeubauerConteo.calcular(TipoConteoNeubauer.ROJOS, 0))
-        assertNull(NeubauerConteo.calcular(TipoConteoNeubauer.OTRA, 10, dilucion = 20.0))
-        assertNull(NeubauerConteo.calcular(TipoConteoNeubauer.OTRA, 10, volumenMicrolitros = 0.4))
+        assertNull(NeubauerConteo.rojos(0))
+        assertNull(NeubauerConteo.general(10, 20.0, 0.0))
+        assertNull(NeubauerConteo.general(10, 0.0, 0.4))
     }
 }

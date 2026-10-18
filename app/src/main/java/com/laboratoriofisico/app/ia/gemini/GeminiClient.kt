@@ -4,6 +4,7 @@ import android.graphics.BitmapFactory
 import android.util.Log
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
+import com.google.ai.client.generativeai.type.generationConfig
 import com.laboratoriofisico.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -19,12 +20,21 @@ class GeminiClient(
     private val imageCacheMutex = Mutex()
     private val imageResponseCache = mutableMapOf<String, String>()
     private var activeRequestLabel: String? = null
-    private val model: GenerativeModel? by lazy {
-        if (!GeminiConfig.isApiKeyConfigured()) return@lazy null
-        GenerativeModel(
+    private val model: GenerativeModel? by lazy { modelo(json = false) }
+
+    private val modeloJson: GenerativeModel? by lazy { modelo(json = true) }
+
+    private fun modelo(json: Boolean): GenerativeModel? {
+        if (!GeminiConfig.isApiKeyConfigured()) return null
+        return GenerativeModel(
             modelName = GeminiConfig.MODEL_NAME,
             apiKey = BuildConfig.GEMINI_API_KEY,
             systemInstruction = content { text(systemInstruction) },
+            generationConfig = if (json) {
+                generationConfig { responseMimeType = "application/json" }
+            } else {
+                null
+            },
             safetySettings = GeminiErrorMapper.safetySettings
         )
     }
@@ -35,7 +45,17 @@ class GeminiClient(
         }
     }
 
-    suspend fun generarConImagen(prompt: String, imagenPath: String): String = withContext(Dispatchers.IO) {
+    suspend fun generarConImagenJson(prompt: String, imagenPath: String): String =
+        generarConImagen(prompt, imagenPath, modeloJson ?: model)
+
+    suspend fun generarConImagen(prompt: String, imagenPath: String): String =
+        generarConImagen(prompt, imagenPath, model)
+
+    private suspend fun generarConImagen(
+        prompt: String,
+        imagenPath: String,
+        generativeModel: GenerativeModel?
+    ): String = withContext(Dispatchers.IO) {
         val cacheKey = imageCacheKey(prompt, imagenPath)
         imageCacheMutex.withLock {
             imageResponseCache[cacheKey]?.let { cached ->
@@ -44,7 +64,7 @@ class GeminiClient(
             }
         }
         runSingleGeminiCall(label = "image:${cacheKey.fingerprint()}") {
-            val response = generarImagenSinGuard(prompt, imagenPath)
+            val response = generarImagenSinGuard(prompt, imagenPath, generativeModel)
             if (!response.isGeminiErrorMessage()) {
                 imageCacheMutex.withLock {
                     imageResponseCache[cacheKey] = response
@@ -72,13 +92,17 @@ class GeminiClient(
             GeminiErrorMapper.mensajeParaUsuario(error)
         }
 
-    private suspend fun generarImagenSinGuard(prompt: String, imagenPath: String): String =
+    private suspend fun generarImagenSinGuard(
+        prompt: String,
+        imagenPath: String,
+        generativeModel: GenerativeModel?
+    ): String =
         runCatching {
-            val generativeModel = model ?: throw IaApiKeyMissingException()
+            val modeloActivo = generativeModel ?: throw IaApiKeyMissingException()
             val bitmap = BitmapFactory.decodeFile(imagenPath)
                 ?: throw IllegalArgumentException("No se pudo leer la imagen capturada.")
             rateLimiter.awaitTurn()
-            val response = generativeModel.generateContent(
+            val response = modeloActivo.generateContent(
                 content {
                     text(prompt)
                     image(bitmap)

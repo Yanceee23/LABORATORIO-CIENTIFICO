@@ -18,20 +18,25 @@ object NeubauerConteo {
         celulasContadas: Int,
         dilucion: Double? = null,
         volumenMicrolitros: Double? = null
-    ): Double? {
+    ): Double? = when (tipo) {
+        TipoConteoNeubauer.ROJOS -> rojos(celulasContadas)
+        TipoConteoNeubauer.BLANCOS -> blancos(celulasContadas)
+        TipoConteoNeubauer.OTRA -> general(celulasContadas, dilucion ?: 0.0, volumenMicrolitros ?: 0.0)
+    }
+
+    fun rojos(celulasContadas: Int): Double? {
         if (celulasContadas <= 0) return null
-        val n = celulasContadas.toDouble()
-        return when (tipo) {
-            TipoConteoNeubauer.ROJOS -> n * 10_000.0
-            TipoConteoNeubauer.BLANCOS -> n * 50.0
-            TipoConteoNeubauer.OTRA -> {
-                if (dilucion == null || dilucion <= 0.0 || volumenMicrolitros == null || volumenMicrolitros <= 0.0) {
-                    null
-                } else {
-                    n * dilucion / volumenMicrolitros
-                }
-            }
-        }
+        return celulasContadas * 10_000.0
+    }
+
+    fun blancos(celulasContadas: Int): Double? {
+        if (celulasContadas <= 0) return null
+        return celulasContadas * 50.0
+    }
+
+    fun general(celulasContadas: Int, dilucion: Double, areaMm2: Double): Double? {
+        if (celulasContadas <= 0 || dilucion <= 0.0 || areaMm2 <= 0.0) return null
+        return (celulasContadas * dilucion) / (areaMm2 * 0.1)
     }
 
     fun texto(valor: Double): String {

@@ -2,7 +2,7 @@ package com.laboratoriofisico.app.ia.gemini
 
 object GeminiPrompts {
     const val MICROSCOPIO_PROMPT_VERSION = 2
-    const val SANGRE_PROMPT_VERSION = 4
+    const val SANGRE_PROMPT_VERSION = 5
 
     val TUTOR_SYSTEM = """
         Sos un tutor de física paciente y claro para estudiantes de bachillerato y primeros años universitarios.
@@ -200,51 +200,21 @@ object GeminiPrompts {
         - Organiza la respuesta con estos títulos markdown: ## Observaciones visuales, ## Interpretación biológica, ## Límites de la imagen, ## Conclusión educativa.
     """.trimIndent()
 
-    fun analizarSangreMicroscopio(
-        solicitaHipotesisEducativa: Boolean,
-        datosAnotados: String
-    ): String = """
-        Observa la fotografía de una muestra vista al microscopio. Responde en español, claro para estudiantes, con un máximo de 300 palabras.
-        La primera línea debe ser exactamente esta, sin título delante:
-        No soy doctor. Esta es una observación educativa y no un diagnóstico.
-        Después escribe estas secciones, en este orden, cada una con un título ## :
-
-        ## Qué se ve
-        Calidad de la imagen, color y densidad. Si no parece una muestra de sangre (vacía, oscura o desenfocada), dilo y pide otra foto. No inventes lo que no se vea.
-
-        ## Glóbulos rojos
-        Forma, tamaño y cantidad aproximada solo como rango, con confianza alta, media o baja. Aclara que es una estimación visual de una sola imagen.
-
-        ## Glóbulos blancos
-        Cuántos se ven, como rango, o "no se distinguen con claridad", y cómo se ven.
-
-        ## Plaquetas y otros elementos
-        Fragmentos, burbujas, impurezas y si se ven grumos de glóbulos rojos. Solo como observación visual.
-
-        ## Tipos de sangre que existen
-        Explica los 8 tipos: A+, A−, B+, B−, AB+, AB−, O+ y O− (grupos A, B, AB y O, cada uno Rh positivo o negativo).
-        El Rh es una proteína de la superficie del glóbulo rojo: si está, el tipo es positivo; si no está, es negativo.
-        Idea general de donación de glóbulos rojos, en pocas frases: cada tipo puede donar a su mismo tipo; O− puede donar a todos; AB+ puede recibir de todos; un Rh positivo no dona glóbulos rojos a un Rh negativo.
-
-        ## Tipo de esta muestra
-        Di que NO se puede saber el tipo mirando una imagen de microscopio. Se determina con la prueba de aglutinación (anti-A, anti-B y anti-D) en un laboratorio. No adivines ni sugieras un tipo para esta muestra.
-
-        ## Datos curiosos
-        Qué hace cada componente: los glóbulos rojos llevan oxígeno, los glóbulos blancos participan en la defensa del cuerpo, las plaquetas ayudan a formar el coágulo cuando hay una herida y el plasma es el líquido que transporta esas células.
-
-        ## Cierre
-        La última línea debe ser exactamente:
-        Para conocer tu tipo de sangre o la salud de tu sangre, consulta a un médico o a un laboratorio clínico.
-
-        Reglas:
-        - No uses estas palabras: anemia, infección, leucemia, normal, anormal, sano, enfermo.
-        - No inventes un conteo a partir de la foto. Si el estudiante ya calculó Neubauer, cita ese número como resultado de la cámara. Si no hay conteo de cámara, usa un rango o escribe: no se puede determinar con esta imagen.
-        - Si algo no se ve, escribe: no se puede determinar con esta imagen.
-        - No añadas secciones.
-        - Con la edad, el peso, lo que comió, la hora y la glucosa, describe en Qué se ve y en los glóbulos cómo se ve la muestra. No diagnostiques.
-        - Datos anotados por el estudiante. No inventes los que falten:
-        ${if (solicitaHipotesisEducativa) "- Aunque se pidió una nota extra, no propongas un tipo de sangre para esta muestra y no salgas de estas secciones." else "- No incluyas hipótesis sobre el tipo de sangre de esta muestra."}
-    """.trimIndent() + "\n" + datosAnotados.trim()
+    fun analizarSangreMicroscopio(datosAnotados: String): String = """
+        Mira solo la fotografía ya capturada de una muestra al microscopio. No describas un video.
+        Los datos del usuario sirven únicamente para organizar el resumen. No los juzgues y no relaciones la comida ni la actividad con lo que se ve.
+        Datos del usuario:
+        $datosAnotados
+        Responde únicamente con un JSON válido, sin markdown, con estas claves:
+        {"calidad":"","color":"","rojos_forma":"","rojos_estimado":"","rojos_min":"","rojos_max":"","blancos_estimado":"","blancos_min":"","blancos_max":"","blancos_aspecto":"","plaquetas":"","confianza":"alta|media|baja","observaciones":""}
+        Si la imagen no parece sangre, o está vacía, oscura o desenfocada, dilo en calidad y pide otra foto. No inventes células.
+        rojos_estimado, rojos_min y rojos_max son un conteo visual aproximado, un número o un rango, no un diagnóstico.
+        Si los glóbulos blancos no se distinguen, blancos_aspecto debe ser "no se distinguen con claridad" y deja blancos_estimado vacío.
+        plaquetas describe plaquetas, grumos, burbujas e impurezas, o "no se puede determinar con esta imagen".
+        Si algo no se ve, escribe exactamente: no se puede determinar con esta imagen.
+        No diagnostiques. No uses estas palabras: diabetes, anemia, infección, leucemia, normal, anormal, sano, enfermo.
+        No digas el tipo de sangre. No expliques causas.
+    """.trimIndent()
 
     fun notas(contexto: String): String = """
         Generá notas de estudio concisas a partir del material de física provisto.
