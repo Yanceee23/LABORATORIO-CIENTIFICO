@@ -34,9 +34,22 @@ fun UvcMicroscopePreview(
         update = { view ->
             if (fragmentAgregado[0]) return@AndroidView
             val fragmentManager = activity?.supportFragmentManager ?: return@AndroidView
-            if (fragmentManager.findFragmentByTag(tag) != null ||
+            val yaHayFragmento = fragmentManager.findFragmentByTag(tag) != null ||
                 fragmentManager.fragments.any { it is UvcMicroscopeFragment }
-            ) {
+            // #region agent log
+            com.laboratoriofisico.app.usb.UsbDebugNdjson.agent(
+                hypothesisId = "A",
+                location = "UvcMicroscopePreview.update",
+                message = "Decisión de montar el fragmento en el recuadro",
+                data = mapOf(
+                    "ancho" to view.width,
+                    "alto" to view.height,
+                    "yaHayFragmento" to yaHayFragmento,
+                    "adjunto" to view.isAttachedToWindow
+                )
+            )
+            // #endregion
+            if (yaHayFragmento) {
                 fragmentAgregado[0] = true
                 return@AndroidView
             }

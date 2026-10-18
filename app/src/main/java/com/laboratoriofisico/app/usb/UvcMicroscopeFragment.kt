@@ -110,6 +110,14 @@ class UvcMicroscopeFragment() : Fragment(), TextureView.SurfaceTextureListener {
         if (n == 1) {
             val label = stream.label ?: "desconocido"
             debug("primer frame real formato=$label bytes=${frame.remaining()}; se oculta el texto de estado")
+            // #region agent log
+            UsbDebugNdjson.agent(
+                hypothesisId = "D",
+                location = "UvcMicroscopeFragment.frameCallback",
+                message = "Primer frame recibido",
+                data = mapOf("formato" to label, "bytes" to frame.remaining())
+            )
+            // #endregion
             mainHandler.post {
                 cancelTimeout()
                 manager?.onPreviewOpened()
@@ -164,6 +172,14 @@ class UvcMicroscopeFragment() : Fragment(), TextureView.SurfaceTextureListener {
     override fun onDestroyView() {
         val rotating = activity?.isChangingConfigurations == true
         debug("onDestroyView rotacion=$rotating frames=${stream.frames.get()}")
+        // #region agent log
+        UsbDebugNdjson.agent(
+            hypothesisId = "E",
+            location = "UvcMicroscopeFragment.onDestroyView",
+            message = "La vista del preview se destruyó",
+            data = mapOf("rotacion" to rotating, "frames" to stream.frames.get())
+        )
+        // #endregion
         stopFrameLog()
         cancelTimeout()
         textureView?.surfaceTextureListener = null
@@ -190,6 +206,19 @@ class UvcMicroscopeFragment() : Fragment(), TextureView.SurfaceTextureListener {
         previewSurface?.release()
         previewSurface = Surface(surface)
         debug("superficie creada ${width}x$height valida=${previewSurface?.isValid == true}")
+        // #region agent log
+        UsbDebugNdjson.agent(
+            hypothesisId = "B",
+            location = "UvcMicroscopeFragment.onSurfaceTextureAvailable",
+            message = "Superficie del preview lista",
+            data = mapOf(
+                "ancho" to width,
+                "alto" to height,
+                "valida" to (previewSurface?.isValid == true),
+                "camaraYaAbierta" to (stream.camera != null)
+            )
+        )
+        // #endregion
         if (stream.camera != null) {
             rebindSurface()
             return
@@ -434,6 +463,19 @@ class UvcMicroscopeFragment() : Fragment(), TextureView.SurfaceTextureListener {
             openedCamera.setFrameCallback(frameCallback, UVCCamera.PIXEL_FORMAT_NV21)
             runCatching { openedCamera.updateCameraParams() }
             debug("resultado intento=${attempt.label} startPreview=llamado")
+            // #region agent log
+            UsbDebugNdjson.agent(
+                hypothesisId = "C",
+                location = "UvcMicroscopeFragment.tryAttempt",
+                message = "startPreview llamado",
+                data = mapOf(
+                    "formato" to attempt.label,
+                    "superficieValida" to display.isValid,
+                    "anchoTextura" to textureView?.width,
+                    "altoTextura" to textureView?.height
+                )
+            )
+            // #endregion
             scheduleTimeout(index, session)
         } catch (error: Throwable) {
             debug("resultado intento=${attempt.label} error=${error.message}")
@@ -485,6 +527,14 @@ class UvcMicroscopeFragment() : Fragment(), TextureView.SurfaceTextureListener {
                 if (!isAdded || stream.session != session || stream.attemptIndex != index) return@Runnable
                 if (stream.frames.get() > baseline) return@Runnable
                 debug("timeout sin frames en ${FORMAT_TIMEOUT_MS}ms con ${stream.label}")
+                // #region agent log
+                UsbDebugNdjson.agent(
+                    hypothesisId = "C",
+                    location = "UvcMicroscopeFragment.scheduleTimeout",
+                    message = "Timeout sin frames",
+                    data = mapOf("formato" to stream.label, "frames" to stream.frames.get())
+                )
+                // #endregion
                 stream.handler?.post { tryAttempt(index + 1, session) }
             }
             timeoutRunnable = runnable

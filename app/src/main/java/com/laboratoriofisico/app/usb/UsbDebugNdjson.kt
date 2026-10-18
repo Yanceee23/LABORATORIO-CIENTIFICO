@@ -77,5 +77,43 @@ object UsbDebugNdjson {
             }
         }
     }
+
+    fun agent(
+        hypothesisId: String,
+        location: String,
+        message: String,
+        data: Map<String, Any?> = emptyMap()
+    ) {
+        val payload = JSONObject().apply {
+            put("sessionId", "639e40")
+            put("hypothesisId", hypothesisId)
+            put("location", location)
+            put("message", message)
+            put("timestamp", System.currentTimeMillis())
+            put("runId", "pre-fix")
+            put("data", JSONObject(data))
+        }
+        val line = payload.toString()
+        Log.i(TAG, "639e40 $location $message $data")
+        thread(name = "usb-debug-639e40") {
+            runCatching {
+                val conn = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("X-Debug-Session-Id", "639e40")
+                    doOutput = true
+                    connectTimeout = 2_000
+                    readTimeout = 2_000
+                }
+                conn.outputStream.use { it.write(line.toByteArray()) }
+                conn.responseCode
+                conn.disconnect()
+            }
+            runCatching {
+                val dir = workspaceFile?.parentFile
+                if (dir != null) File(dir, "debug-639e40.log").appendText("$line\n")
+            }
+        }
+    }
     // #endregion
 }
